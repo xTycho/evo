@@ -117,6 +117,7 @@
   .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--hairline); }
   .seg button { background: none; border: 0; border-right: 1px solid var(--hairline); padding: 10px 8px; cursor: pointer; }
   .seg button:last-child { border-right: 0; }
+  .seg2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .seg button[aria-pressed="true"] { background: var(--amber); color: #1a1501; }
   .block { display: grid; gap: 12px; }
   .up-btn { justify-self: start; }
@@ -154,6 +155,7 @@
   .prof svg text { font: 500 9px var(--mono); letter-spacing: .04em; fill: var(--ink-faint); text-transform: uppercase; }
   .prof svg .ev text { fill: var(--ink-muted); }
   .prof-tip { position: absolute; top: 0; pointer-events: none; background: rgba(11,11,10,.92); border: 1px solid var(--amber); color: var(--ink); padding: 4px 8px; white-space: nowrap; transform: translateX(-50%); }
+  .prof-btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .prof-ctl { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .foot { color: var(--ink-faint); display: grid; gap: 6px; border-top: 1px solid var(--hairline); padding-top: 16px; }
   .foot a { color: var(--ink-muted); }
@@ -202,6 +204,17 @@
       </div>
       <p class="note" id="locMsg" aria-live="polite"></p>
     </header>
+
+    <section class="block" aria-labelledby="hLaunch">
+      <h2 id="hLaunch">Launches <span class="mono" id="lnCount"></span></h2>
+      <div class="seg seg2 mono" role="group" aria-label="Which launches to list">
+        <button type="button" data-ltab="up" aria-pressed="true">Upcoming</button>
+        <button type="button" data-ltab="hist" aria-pressed="false">History</button>
+      </div>
+      <ul class="list" id="launchList"></ul>
+      <ul class="list" id="histList" hidden></ul>
+      <p class="note" id="histNote" hidden>Key flights from the past. Dates and pads are real; the paths are modeled from the target orbit. Tap one to watch the full flight in real time.</p>
+    </section>
 
     <div class="block">
       <div class="seg mono" role="group" aria-label="Which objects to show">
@@ -253,8 +266,8 @@
         <svg id="profSvg" viewBox="0 0 340 170" role="img" aria-label="Altitude against time after liftoff"></svg>
         <div class="prof-tip mono" id="profTip" hidden></div>
       </div>
-      <div class="prof-ctl"><button class="ctl mono" id="lnPlay" type="button">Replay flight</button><span class="mono">Now showing <span class="v" id="lnT">T+00:00</span></span></div>
-      <p class="note">Modeled from the target orbit and a typical ascent, not live telemetry. Amber is the upper stage, dashed white the first stage after separation. Drag across the chart to scrub the flight on the globe.</p>
+      <div class="prof-ctl"><span class="prof-btns"><button class="ctl mono" id="lnPlay" type="button">Quick replay</button><button class="ctl mono" id="lnFull" type="button">Full replay</button></span><span class="mono">Now showing <span class="v" id="lnT">T+00:00</span></span></div>
+      <p class="note">Modeled from the target orbit and a typical ascent, not live telemetry. Cyan is the upper stage, dashed white the first stage after separation. Drag across the chart to scrub the flight on the globe.</p>
     </div>
 
     <section class="block" aria-labelledby="hSky">
@@ -272,10 +285,6 @@
       <ul class="list" id="passList"></ul>
     </section>
 
-    <section class="block" aria-labelledby="hLaunch">
-      <h2 id="hLaunch">Launches <span class="mono">Upcoming</span></h2>
-      <ul class="list" id="launchList"></ul>
-    </section>
 
     <div class="foot mono">
       <span id="dataAge">Orbit data</span>
@@ -817,7 +826,7 @@
     if (focusPad && prof && prof.s != null && G.pmode === 'launch' && G.upLine) { // in the launch view the label rides with the vehicle
       pinTarget = null; // the corner card carries the vehicle's phase, time and height
       var ps = prof.p, sp = prof.s;
-      $('pinKind').textContent = prof.live && prof.sRaw < 0 ? 'Live · waiting for liftoff' : sp < 1 ? 'On the pad · ' + prof.l.status : phaseOf(ps, sp);
+      $('pinKind').textContent = prof.live && prof.sRaw < 0 ? (prof.full ? 'Replay · starting' : 'Live · waiting for liftoff') : sp < 1 ? 'On the pad · ' + prof.l.status : phaseOf(ps, sp);
       $('pinName').textContent = prof.l.mission.length > 30 ? prof.l.mission.slice(0, 29) + '…' : prof.l.mission;
       $('pinData').textContent = prof.live && prof.sRaw < 0 ? tminus(-prof.sRaw * 1000) : 'T+' + mmss(sp) + ' · ' + Math.round(prof.cur.h) + ' km';
     } else if (focusPad && !sel) {
@@ -988,15 +997,30 @@
       li.appendChild(b); ll2.appendChild(li);
     });
 
+    var hl = $('histList');
+    if (!hl.childNodes.length) HISTORY.forEach(function (l) {
+      var li = el('li'), b = el('button', 'row'), d = new Date(l.net);
+      b.type = 'button'; l.btn = b;
+      var right = el('span', 'el');
+      right.appendChild(el('span', 'mono v', d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })));
+      right.appendChild(el('span', 'mono', 'Full replay'));
+      b.appendChild(el('b', null, l.mission)); b.appendChild(right); b.appendChild(el('span', 'mono sub', l.rocket + ' · ' + l.note));
+      b.addEventListener('click', function () { showPad(l, false, true); });
+      li.appendChild(b); hl.appendChild(li);
+    });
+    HISTORY.forEach(function (l) { l.btn && l.btn.setAttribute('aria-pressed', focusPad === l ? 'true' : 'false'); });
+    $('lnCount').textContent = ltab === 'hist' ? HISTORY.length + ' key flights' : future.length + ' upcoming';
+
     if (!liveOn) $('hudStatus').textContent = $('hudStatus').dataset.state === 'locked' ? 'Sky locked · ' + up.length + ' above you' : 'Scanning sky';
     var age = Math.max(0, Math.floor((Date.now() - SNAPSHOT_DATE) / 86400000));
     if (liveOrbits) { $('dataAge').textContent = 'Orbits from CelesTrak, refreshed every 2 hours'; } else $('dataAge').textContent = 'Orbit snapshot ' + new Date(SNAPSHOT_DATE).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + (age > 0 ? ' · ' + age + (age === 1 ? ' day' : ' days') + ' old' : ' · fresh') + (age > 10 ? ' · positions drift, refresh data' : '');
   }
 
-  function showPad(l, fromLive) {
+  function showPad(l, fromLive, full) {
     if (!fromLive) setLive(false);
     sel = null; $('selCard').hidden = true; focusPad = l; follow = false;
     openProfile(l); prof.live = !!fromLive;
+    if (full) fullReplay();
     if (G) {
       var nrm = ll(l.lat, l.lon, 1.004); G.padM.position.copy(nrm); G.padM.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm.clone().normalize());
       var mid = gcPoint(l.lat, l.lon, prof.p.az, prof.p.Dr * .45);
@@ -1045,9 +1069,17 @@
   }
 
   // ---------- layers (live catalogue) ----------
+  var ltab = 'up';
+  function setLaunchTab(t) {
+    ltab = t;
+    document.querySelectorAll('[data-ltab]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.ltab === t ? 'true' : 'false'); });
+    $('launchList').hidden = t !== 'up'; $('histList').hidden = $('histNote').hidden = t !== 'hist';
+    updateAll(true);
+  }
+  document.querySelectorAll('[data-ltab]').forEach(function (b) { b.addEventListener('click', function () { setLaunchTab(b.dataset.ltab); }); });
   function setLayer(name, retried) {
     layer = name; store('overhead.layer', name);
-    document.querySelectorAll('.seg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.layer === name ? 'true' : 'false'); });
+    document.querySelectorAll('[data-layer]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.layer === name ? 'true' : 'false'); });
     if (sel && BULK.indexOf(sel) >= 0) select(null);
     if (name === 'hl') { BULK = []; $('layerMsg').textContent = HL.length + ' hand-picked objects: crewed stations, bright satellites, weather and ham radio birds.'; updateAll(true); return; }
     if (bulkCache[name]) { useBulk(name); return; }
@@ -1123,15 +1155,29 @@
   }
 
   // ---------- launch flight profile (modeled, not telemetry) ----------
-  var ORBIT_TXT = { LEO: 'Low Earth', SSO: 'Sun-synchronous', PO: 'Polar', GTO: 'Geo transfer', GEO: 'Geostationary', MEO: 'Medium Earth', HEO: 'Highly elliptical', TLI: 'Moon', 'Lunar': 'Moon', Mars: 'Mars', 'Helio-N/A': 'Deep space', Sub: 'Suborbital' };
+  // Notable past flights for the History tab. Times are the real liftoff times (UTC); the paths are modeled.
+  var HISTORY = [
+    { mission: 'Starship Flight 11', rocket: 'Starship', net: '2025-10-13T23:23:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'Last flight of the second-generation ship, splashdown in the Indian Ocean' },
+    { mission: 'Starship Flight 10', rocket: 'Starship', net: '2025-08-26T23:30:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'First Starlink simulator deploy and a controlled ship splashdown' },
+    { mission: 'Starship Flight 5', rocket: 'Starship', net: '2024-10-13T12:25:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'First booster caught by the launch tower arms' },
+    { mission: 'New Glenn NG-1', rocket: 'New Glenn', net: '2025-01-16T07:03:00Z', orbit: 'MEO', location: 'Cape Canaveral SFS, LC-36', lat: 28.471, lon: -80.538, note: 'Blue Origin reaches orbit on its first try' },
+    { mission: 'Europa Clipper', rocket: 'Falcon Heavy', net: '2024-10-14T16:06:00Z', orbit: 'Helio-N/A', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'NASA probe on its way to Jupiter\'s moon Europa' },
+    { mission: 'Polaris Dawn', rocket: 'Falcon 9 Block 5', net: '2024-09-10T09:23:00Z', orbit: 'HEO', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'First commercial spacewalk, highest crewed orbit since Apollo' },
+    { mission: 'Starliner Crew Flight Test', rocket: 'Atlas V N22', net: '2024-06-05T14:52:00Z', orbit: 'LEO', location: 'Cape Canaveral SFS, SLC-41', lat: 28.583, lon: -80.583, note: 'First crew on Boeing Starliner, to the ISS' },
+    { mission: 'Artemis I', rocket: 'SLS Block 1', net: '2022-11-16T06:47:00Z', orbit: 'TLI', location: 'Kennedy Space Center, LC-39B', lat: 28.627, lon: -80.621, note: 'Uncrewed Orion around the Moon and back' },
+    { mission: 'James Webb Space Telescope', rocket: 'Ariane 5 ECA', net: '2021-12-25T12:20:00Z', orbit: 'L2', location: 'Guiana Space Centre, ELA-3', lat: 5.239, lon: -52.768, note: 'Space telescope sent toward the Sun-Earth L2 point' },
+    { mission: 'Crew Dragon Demo-2', rocket: 'Falcon 9 Block 5', net: '2020-05-30T19:22:00Z', orbit: 'LEO', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'First astronauts launched from the US since 2011' }
+  ].map(function (l) { l.status = 'Success'; l.hist = true; return l; });
+  var ORBIT_TXT = { LEO: 'Low Earth', SSO: 'Sun-synchronous', PO: 'Polar', GTO: 'Geo transfer', GEO: 'Geostationary', MEO: 'Medium Earth', HEO: 'Highly elliptical', TLI: 'Moon', 'Lunar': 'Moon', Mars: 'Mars', 'Helio-N/A': 'Deep space', Sub: 'Suborbital', L2: 'Sun-Earth L2' };
   function profileFor(l) {
     var o = (l.orbit || '').trim(), name = (l.mission + ' ' + l.rocket).toLowerCase(), alat = Math.abs(l.lat);
     var p = { inc: alat, H: 350, park: false, south: false, dest: '' };
-    if (/tianzhou|shenzhou/.test(name)) { p.inc = 41.5; p.H = 380; p.dest = 'to Tiangong'; }
+    if (/starship/.test(name)) { p.H = 190; p.sub = true; p.rtls = true; p.dest = 'to an Indian Ocean splashdown'; }
+    else if (/tianzhou|shenzhou/.test(name)) { p.inc = 41.5; p.H = 380; p.dest = 'to Tiangong'; }
     else if (/dragon|crs|cygnus|progress|soyuz ms|crew-|starliner|htv|axiom|\bax-/.test(name)) { p.inc = 51.6; p.H = 400; p.dest = 'to the ISS'; }
     else if (o === 'SSO') { p.inc = 97.6; p.H = 550; p.south = true; }
     else if (o === 'PO') { p.inc = 90; p.H = 600; p.south = true; }
-    else if (/^(GTO|GEO|MEO|HEO|TLI|Lunar|Mars|Helio)/.test(o)) { p.H = 200; p.park = true; }
+    else if (/^(GTO|GEO|MEO|HEO|TLI|Lunar|Mars|Helio|L2)/.test(o)) { p.H = 200; p.park = true; }
     p.inc = Math.max(p.inc, alat); // a rocket cannot reach an inclination lower than its pad's latitude without a costly dogleg
     var r = Math.cos(p.inc * D) / Math.cos(l.lat * D);
     var az = Math.asin(Math.max(-1, Math.min(1, r))) / D; // launch heading from north, northbound branch
@@ -1173,13 +1219,13 @@
   function stagingFor(p, l) {
     p.ts = 160; var us = p.ts / p.T;
     p.dS = dAt(p, us); p.hS = hAt(p, us);
-    p.reuse = /falcon|new glenn/i.test(l.rocket);
-    p.dL = p.reuse ? Math.max(p.dS + 250, 600) : p.dS * 2.4 + 200;
+    p.reuse = /falcon|new glenn|starship/i.test(l.rocket);
+    p.dL = p.rtls ? 0 : p.reuse ? Math.max(p.dS + 250, 600) : p.dS * 2.4 + 200; // Super Heavy flies back to the tower
     p.Tb = p.ts + (p.reuse ? 350 : 300);
     p.Tc = Math.max(p.T, p.Tb) + 30;         // chart span
     p.Tend = p.T + 170;                       // replay runs on past insertion so the satellite can be seen in orbit
     p.Vg = p.V * 6371 / (6371 + p.H);         // ground-track speed in orbit, km/s
-    p.events = [['Liftoff', 0, 'up'], ['Max-Q', 70, 'up'], ['Stage sep', p.ts, 'up'], ['Fairing', 215, 'up'], [p.reuse ? 'Booster lands' : 'Stage 1 splash', p.Tb, 'bst'], [p.park ? 'Parking orbit' : 'Orbit', p.T, 'up']]
+    p.events = [['Liftoff', 0, 'up'], ['Max-Q', 70, 'up'], ['Stage sep', p.ts, 'up'], ['Fairing', 215, 'up'], [p.rtls ? 'Booster catch' : p.reuse ? 'Booster lands' : 'Stage 1 splash', p.Tb, 'bst'], [p.sub ? 'Engine cutoff' : p.park ? 'Parking orbit' : 'Orbit', p.T, 'up']]
       .sort(function (a, b) { return a[1] - b[1]; });
   }
   function upperAt(p, s) { return s <= p.T ? { d: dAt(p, s / p.T), h: hAt(p, s / p.T) } : { d: p.Dr + p.Vg * (s - p.T), h: p.H }; }
@@ -1189,6 +1235,8 @@
   }
   function vec(p, l, o, lift) { var q = gcPoint(l.lat, l.lon, p.az, o.d); return ll(q.lat, q.lon, disp(o.h) + (lift || .0003)); } // hug the ground: up close a few km of lift reads as floating
 
+  // the whole flight in real time, from a short countdown, with the same directed camera as Live
+  function fullReplay() { prof.live = prof.full = true; prof.epoch = Date.now() + 8000; prof.manual = null; if (G) G.lzUser = false; }
   function openProfile(l) {
     var p = profileFor(l); stagingFor(p, l);
     p.yMax = Math.ceil(p.H / 100) * 100;
@@ -1254,7 +1302,7 @@
   function profS(t) {
     if (!prof) return 0;
     if (prof.manual != null) return prof.manual;
-    if (prof.live) { prof.sRaw = (Date.now() - new Date(prof.l.net)) / 1000; return Math.max(0, Math.min(prof.p.Tend, prof.sRaw)); }
+    if (prof.live) { prof.sRaw = (Date.now() - (prof.epoch != null ? prof.epoch : +new Date(prof.l.net))) / 1000; return Math.max(0, Math.min(prof.p.Tend, prof.sRaw)); }
     if (reduce) return prof.p.Tend;
     var r = ((t - prof.t0) / 1000) % (LEAD + PLAY + HOLD);
     return Math.max(0, Math.min(1, (r - LEAD) / PLAY)) * prof.p.Tend;
@@ -1281,11 +1329,11 @@
       m.bd.setAttribute('cx', bx); m.bd.setAttribute('cy', by); m.bd.style.display = bOn ? '' : 'none';
     });
     var waiting = prof.live && prof.sRaw < 0;
-    $('lmKind').textContent = (prof.live ? 'Live · ' : 'Replay · ') + (waiting ? 'Waiting for liftoff' : phaseOf(p, s));
+    $('lmKind').textContent = (prof.live && !prof.full ? 'Live · ' : 'Replay · ') + (waiting ? (prof.full ? 'Starting' : 'Waiting for liftoff') : phaseOf(p, s));
     $('lmData').textContent = waiting ? tminus(-prof.sRaw * 1000) + ' · ' + prof.l.rocket : 'T+' + mmss(s) + ' · ' + Math.round(up.h) + ' km · ' + km(up.d) + ' downrange';
     $('lnT').textContent = waiting ? tminus(-prof.sRaw * 1000) : 'T+' + mmss(s) + ' · ' + (s < p.ts ? 'Stage 1 · ' + Math.round(up.h) + ' km' : s < p.T ? 'Upper stage · ' + Math.round(up.h) + ' km' : 'In orbit · ' + p.H + ' km');
   }
-  function phaseOf(p, s) { return s < 1 ? 'On the pad' : s < p.ts ? 'First stage burn' : s < p.T ? 'Upper stage burn' : 'Satellite in orbit'; }
+  function phaseOf(p, s) { return s < 1 ? 'On the pad' : s < p.ts ? 'First stage burn' : s < p.T ? (p.sub ? 'Ship burn' : 'Upper stage burn') : p.sub ? 'Ship coasting' : 'Satellite in orbit'; }
 
   function drawProfileChart(id, mini) {
     var p = prof.p, svg = $(id); svg.textContent = '';
@@ -1335,7 +1383,8 @@
     svg.addEventListener('pointerdown', function (e) { try { svg.setPointerCapture(e.pointerId); } catch (x) {} scrub(e); });
     svg.addEventListener('pointerleave', release);
     svg.addEventListener('pointerup', function (e) { if (e.pointerType !== 'mouse') release(); });
-    $('lnPlay').addEventListener('click', function () { if (prof) { setLive(false); prof.live = false; prof.manual = null; prof.t0 = performance.now(); } });
+    $('lnPlay').addEventListener('click', function () { if (prof) { setLive(false); prof.live = prof.full = false; prof.epoch = null; prof.manual = null; prof.t0 = performance.now(); } });
+    $('lnFull').addEventListener('click', function () { if (prof) { setLive(false); fullReplay(); } });
     $('lnClear').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
     $('lmClose').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
   })();
@@ -1664,7 +1713,7 @@
   $('recenter').addEventListener('click', function () { if (G) { PIN_YAW = 0; PIN_PITCH = 35 * D; select(null); focusPad = null; intro(); } });
   $('selClear').addEventListener('click', function () { select(null); });
   $('launchHud').addEventListener('click', function () { var nl = LAUNCHES.find(function (l) { return new Date(l.net) > now; }); if (nl) showPad(nl); });
-  document.querySelectorAll('.seg button').forEach(function (b) { b.addEventListener('click', function () { setLayer(b.dataset.layer); }); });
+  document.querySelectorAll('[data-layer]').forEach(function (b) { b.addEventListener('click', function () { setLayer(b.dataset.layer); }); });
   addEventListener('resize', globeResize);
 
   if (!ok) {
