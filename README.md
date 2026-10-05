@@ -4,7 +4,7 @@ What's flying above you right now. A live globe of satellites, their passes over
 
 Open it at https://xtycho.github.io/evo/
 
-- Orbits come live from [CelesTrak](https://celestrak.org) and are propagated in the browser with [satellite.js](https://github.com/shashwatak/satellite-js) (SGP4).
+- Orbits come from [CelesTrak](https://celestrak.org). A GitHub Action (`.github/workflows/refresh-data.yml`) copies them to the `data` branch every 2 hours so visitors never hit CelesTrak's download limits. They are propagated in the browser with [satellite.js](https://github.com/shashwatak/satellite-js) (SGP4).
 - Launches come from [The Space Devs](https://thespacedevs.com) Launch Library 2.
 - If either source is unreachable, the page falls back to the snapshot built into `index.html`.
 

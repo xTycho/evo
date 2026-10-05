@@ -1,0 +1,51 @@
+name: Refresh satellite data
+
+# CelesTrak updates orbits about every 2 hours and blocks clients that download
+# more often than that, so one job fetches for everyone and the page reads the
+# copy on the `data` branch.
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/refresh-data.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download catalogues
+        run: |
+          set -euo pipefail
+          mkdir out
+          ua='evo-satellite-globe (github.com/${{ github.repository }})'
+          gp='https://celestrak.org/NORAD/elements/gp.php'
+          get() { curl -fsSL --retry 3 --retry-delay 10 -A "$ua" "$1" -o "$2"; sleep 3; }
+          get "$gp?GROUP=active&FORMAT=tle" out/active.txt
+          get "$gp?GROUP=visual&FORMAT=tle" out/visual.txt
+          get "$gp?GROUP=weather&FORMAT=tle" out/weather.txt
+          get 'https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=8&mode=normal' out/launches.json || echo 'launches skipped'
+          lines=$(wc -l < out/active.txt)
+          echo "active.txt has $lines lines"
+          test "$lines" -gt 3000
+          date -u +%Y-%m-%dT%H:%M:%SZ > out/updated.txt
+
+      - name: Publish to the data branch
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q -b data
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -qm "Satellite data $(cat updated.txt)"
+          # single-commit branch, force-pushed, so the repo does not grow with every refresh
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
