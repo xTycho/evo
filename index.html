@@ -19,6 +19,7 @@
     --deep-space: #110f09;
     --amber: #feb302;
     --amber-soft: #ffd466;
+    --path: #5ce1e6; /* launch paths: the one colour besides amber, so flights read apart from satellites */
     --ink: #ffffff;
     --ink-muted: #a6a39a;
     --ink-faint: #6d6a61;
@@ -64,6 +65,11 @@
   .ln-mini > * { min-width: 0; }
   @media (max-width: 560px) { .ln-mini { left: 0; width: auto; } .ln-mini svg { max-height: 90px; } }
   .ln-mini[hidden] { display: none; }
+  .ptags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .ptag { position: absolute; left: 0; top: 0; margin: -10px 0 0 14px; padding: 6px 9px; border: 1px solid var(--path); background: rgba(11,11,10,.8); display: none; gap: 0; white-space: nowrap; font-size: 11px; line-height: 15px; }
+  .ptag.on { display: grid; }
+  .ptag .v { color: var(--path); }
+  .ptag b { color: var(--ink); font-weight: 600; }
   .ln-mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ln-mini .k { color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ln-mini b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -170,6 +176,7 @@
   <section class="stage" id="stage" aria-label="Globe showing satellites around Earth. Drag to turn it, tap a dot to track it.">
     <canvas id="globe"></canvas>
     <div class="scan"></div>
+    <div class="ptags" id="prevTags" hidden></div>
     <div class="pin" id="pin"><div class="lead"></div><div class="box mono"><span id="pinKind">Tracking</span><b id="pinName">Name</b><span id="pinData">0</span></div></div>
     <div class="hud mono">
       <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
@@ -764,7 +771,7 @@
     G.bulkPts.userData.trails.material.opacity = tf;
     TRAIL_S = 6 + 19 * clamp((CZ - 1) / 3); G.backM.opacity = .1 * fade * clamp((CZ - 1.6) / .8); G.gridM.opacity = .09 * fade; G.rimM.uniforms.k.value = fade * far; G.atmoM.uniforms.k.value = fade * far; G.tickM.opacity = .35 * fade;
     G.hlPts.material.opacity = fade; G.bulkPts.material.opacity = .9 * fade;
-    G.hud.rotation.z = t / 9000; G.arc.rotation.z = -t / 2500; G.arc2.rotation.z = t / 3200;
+    G.arc.visible = G.arc2.visible = false; // the orbiting HUD arcs read as noise; the tick ring stays still
 
     // observer beacon
     var m = clamp((T - HIT) / .6);
@@ -1147,7 +1154,7 @@
   }
   function mmss(s) { s = Math.max(0, Math.round(s)); return pad(Math.floor(s / 60), 2) + ':' + pad(s % 60, 2); }
 
-  var prof = null, SVGNS = 'http://www.w3.org/2000/svg';
+  var PATH = 0x5ce1e6, prof = null, SVGNS = 'http://www.w3.org/2000/svg';
   function svgEl(tag, attrs, parent) { var e = document.createElementNS(SVGNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
   var PW = 340, PH = 170, PM = { l: 50, r: 12, t: 30, b: 22 };
   function px(p, sec) { return PM.l + (Math.min(sec, p.Tc) / p.Tc) * (PW - PM.l - PM.r); }
@@ -1198,7 +1205,7 @@
     var oa = G.orbLine.geometry.attributes.position.array, oc = G.orbLine.geometry.attributes.color.array;
     for (i = 0; i <= 160; i++) {
       v = vec(p, l, upperAt(p, p.T + i / 160 * (p.Tend - p.T + 900))); oa[i * 3] = v.x; oa[i * 3 + 1] = v.y; oa[i * 3 + 2] = v.z;
-      var f = .75 * Math.pow(1 - i / 160, 1.6); oc[i * 3] = f; oc[i * 3 + 1] = .7 * f; oc[i * 3 + 2] = .01 * f;
+      var f = .75 * Math.pow(1 - i / 160, 1.6); oc[i * 3] = .36 * f; oc[i * 3 + 1] = .88 * f; oc[i * 3 + 2] = .9 * f;
     }
     G.orbLine.geometry.attributes.position.needsUpdate = G.orbLine.geometry.attributes.color.needsUpdate = true;
     var ba = G.bstLine.geometry.attributes.position.array;
@@ -1225,7 +1232,7 @@
       var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((n || 1) * 3), 3));
       var o = new THREE.Points(g, new THREE.PointsMaterial({ size: size, sizeAttenuation: false, map: tex, color: color, transparent: true, depthWrite: false })); o.frustumCulled = false; G.world.add(o); return o;
     }
-    G.upLine = line(161, new THREE.LineBasicMaterial({ color: 0xfeb302, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false }));
+    G.upLine = line(161, new THREE.LineBasicMaterial({ color: PATH, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false }));
     G.orbLine = line(161, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), true);
     G.bstLine = line(81, new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: .004, gapSize: .004, transparent: true, opacity: .55, depthWrite: false }));
     G.profEv = dot(7, coreTex(), 0xfeb302, 8); G.profEv.material.blending = THREE.AdditiveBlending;
@@ -1290,9 +1297,9 @@
     var d = '', i, s;
     for (i = 0; i <= 140; i++) { s = i / 140 * p.Tc; d += (i ? 'L' : 'M') + px(p, s).toFixed(1) + ' ' + py(p, upperAt(p, s).h).toFixed(1); }
     var defs = svgEl('defs', {}, svg), lg = svgEl('linearGradient', { id: 'profFill' + (mini ? 'M' : ''), x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
-    svgEl('stop', { offset: 0, 'stop-color': '#feb302', 'stop-opacity': .22 }, lg); svgEl('stop', { offset: 1, 'stop-color': '#feb302', 'stop-opacity': 0 }, lg);
+    svgEl('stop', { offset: 0, 'stop-color': '#5ce1e6', 'stop-opacity': .2 }, lg); svgEl('stop', { offset: 1, 'stop-color': '#5ce1e6', 'stop-opacity': 0 }, lg);
     svgEl('path', { d: d + 'L' + px(p, p.Tc) + ' ' + base + 'L' + PM.l + ' ' + base + 'Z', fill: 'url(#profFill' + (mini ? 'M' : '') + ')' }, svg);
-    svgEl('path', { d: d, fill: 'none', stroke: '#feb302', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+    svgEl('path', { d: d, fill: 'none', stroke: '#5ce1e6', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
     var bd = '';
     for (i = 0; i <= 60; i++) { s = p.ts + i / 60 * (p.Tb - p.ts); bd += (i ? 'L' : 'M') + px(p, s).toFixed(1) + ' ' + py(p, boosterAt(p, s).h).toFixed(1); }
     svgEl('path', { d: bd, fill: 'none', stroke: '#ffffff', 'stroke-opacity': .6, 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }, svg);
@@ -1537,13 +1544,14 @@
     var list = upcoming(t).filter(function (l) { return new Date(l.net) - t < 14 * 864e5; }).slice(0, 8), key = list.map(function (l) { return l.mission + l.net; }).join('|');
     if (key === prevKey && G.prev) return; prevKey = key;
     if (G.prev) { G.prev.group.parent.remove(G.prev.group); G.prev.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); }); }
-    var group = new THREE.Group(), items = [], lineM = new THREE.LineBasicMaterial({ color: 0xfeb302, transparent: true, opacity: .55, blending: THREE.AdditiveBlending, depthWrite: false });
+    var group = new THREE.Group(), items = [], lineM = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
     list.forEach(function (l, n) {
       var p = profileFor(l); stagingFor(p, l); var span = p.T + 300, pts = [];
       for (var i = 0; i <= 90; i++) { var v = vec(p, l, upperAt(p, i / 90 * span), .002); pts.push(v.x, v.y, v.z); }
       var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(91 * 3), 3));
       group.add(new THREE.Line(g, lineM));
-      items.push({ l: l, p: p, span: span, off: n * 1.9 });
+      items.push({ l: l, p: p, span: span, off: n * 1.9, g: g });
     });
     function pts(n, size, color) { var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(Math.max(1, n) * 3), 3)); g.setDrawRange(0, n);
       var o = new THREE.Points(g, new THREE.PointsMaterial({ size: size, sizeAttenuation: false, map: coreTex(), color: color, transparent: true, depthWrite: false })); o.frustumCulled = false; group.add(o); return o; }
@@ -1551,13 +1559,44 @@
     items.forEach(function (it, n) { var v = ll(it.l.lat, it.l.lon, 1.003); pads.geometry.attributes.position.setXYZ(n, v.x, v.y, v.z); });
     pads.geometry.attributes.position.needsUpdate = true;
     G.world.add(group); G.prev = { group: group, items: items, dots: dots };
+    // small popups: what is launching, from where, to which orbit, and the countdown
+    var box = $('prevTags'), seen = {}, shown = 0; box.textContent = '';
+    items.forEach(function (it) {
+      var pad = it.l.lat.toFixed(1) + ',' + it.l.lon.toFixed(1); // one popup per pad: the soonest launch from it
+      if (shown > 3 || seen[pad]) return; seen[pad] = 1; shown++;
+      var d = el('div', 'ptag mono'); d.appendChild(el('span', 'v', '')); d.appendChild(el('b', null, it.l.mission.length > 28 ? it.l.mission.slice(0, 27) + '…' : it.l.mission));
+      d.appendChild(el('span', null, it.l.rocket + ' · ' + (ORBIT_TXT[it.l.orbit] || it.l.orbit || 'orbit n/a')));
+      d.appendChild(el('span', null, it.l.location.split(',')[0] + ' · ' + Math.round(it.p.az) + '° ' + compass(it.p.az) + ' · ' + it.p.H + ' km'));
+      box.appendChild(d); it.tag = d;
+    });
   }
   function previewFrame(t) {
     if (!G || !G.prev) return;
-    var on = liveOn && !prof; G.prev.group.visible = on; if (!on) return;
-    var a = G.prev.dots.geometry.attributes.position;
-    G.prev.items.forEach(function (it, n) { var u = ((t / 1000 + it.off) % 7) / 6, v = vec(it.p, it.l, upperAt(it.p, Math.min(1, u) * it.span), .003); a.setXYZ(n, v.x, v.y, v.z); });
+    var on = liveOn && !prof; G.prev.group.visible = on; $('prevTags').hidden = !on; if (!on) return;
+    var a = G.prev.dots.geometry.attributes.position, now = Date.now();
+    G.prev.items.forEach(function (it, n) {
+      var u = Math.min(1, ((t / 1000 + it.off) % 7) / 6), v = vec(it.p, it.l, upperAt(it.p, u * it.span), .003); a.setXYZ(n, v.x, v.y, v.z);
+      // the path lights up in a short trail behind the flying dot
+      var c = it.g.attributes.color.array;
+      for (var i = 0; i <= 90; i++) { var x = u - i / 90, f = .16 + (x >= 0 && x < .35 ? .84 * (1 - x / .35) : 0); c[i * 3] = .36 * f; c[i * 3 + 1] = .88 * f; c[i * 3 + 2] = .9 * f; }
+      it.g.attributes.color.needsUpdate = true;
+      if (it.tag) {
+        W.set(it.l.lat, it.l.lon, 0); var pv = ll(it.l.lat, it.l.lon, 1.003); W.copy(pv).applyMatrix4(G.world.matrixWorld);
+        var occ = hidden(W); W.project(G.cam);
+        it.tx = (W.x * .5 + .5) * G.w; it.ty = (-W.y * .5 + .5) * G.h; it.vis = !occ && W.z < 1;
+        it.tag.classList.toggle('on', it.vis);
+        it.tag.firstChild.textContent = tminus(new Date(it.l.net) - now);
+      }
+    });
     a.needsUpdate = true;
+    // keep popups from covering each other: walk them top to bottom and push overlapping ones down
+    var tags = G.prev.items.filter(function (it) { return it.tag && it.vis; }).sort(function (x, y) { return x.ty - y.ty; }), placed = [];
+    tags.forEach(function (it) {
+      var w = it.tag.offsetWidth || 240, h = it.tag.offsetHeight || 64, y = it.ty;
+      placed.forEach(function (q) { if (it.tx < q.x + q.w + 6 && it.tx + w + 6 > q.x && y < q.y + q.h + 6 && y + h + 6 > q.y) y = q.y + q.h + 6; });
+      placed.push({ x: it.tx, y: y, w: w, h: h });
+      it.tag.style.transform = 'translate(' + it.tx.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+    });
   }
   function setLive(on) {
     if (on === liveOn) return;
