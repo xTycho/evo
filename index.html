@@ -429,8 +429,41 @@
     var world = new THREE.Group(); world.rotation.order = 'XYZ'; s.add(world);
     var amber = new THREE.Color(0xfeb302), tex = dotTex();
 
-    var core = new THREE.Mesh(new THREE.SphereGeometry(.995, 64, 48), new THREE.MeshBasicMaterial({ color: 0x0c0a05 }));
+    var core = new THREE.Mesh(new THREE.SphereGeometry(.995, 192, 96), new THREE.MeshBasicMaterial({ color: 0x0c0a05 }));
     world.add(core);
+    // Close-up surface: one shader draws crisp land dots at a spacing that follows the zoom, the coastline and
+    // country borders from a high-res land map that is only downloaded the first time you zoom in.
+    var surfM = new THREE.ShaderMaterial({ extensions: { derivatives: true }, uniforms: { map: { value: null }, c: { value: amber }, k: { value: 0 }, ready: { value: 0 } },
+      vertexShader: 'varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }',
+      fragmentShader: [
+        'uniform sampler2D map; uniform vec3 c; uniform float k; uniform float ready; varying vec3 vP; varying vec3 vN; varying vec3 vV;',
+        'const float PI = 3.14159265;',
+        'float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+        'vec2 uvOf(float la, float lo){ return vec2(lo / (2.0 * PI) + 0.5, 0.5 + la / PI); }',
+        'float layer(float la, float lo, float pitch, float px){',
+        '  vec2 g = vec2(lo * cos(la), la) / pitch; vec2 id = floor(g + 0.5); vec2 f = g - id;',
+        '  float cla = id.y * pitch, clo = id.x * pitch / max(cos(cla), 0.01);',
+        '  float land = texture2D(map, uvOf(cla, clo)).r;',
+        '  float fw = 0.75 * px / pitch, r = 0.2;',
+        '  return (1.0 - smoothstep(r - fw, r + fw, length(f))) * (0.5 + 0.5 * h(id * pitch * 4096.0)) * smoothstep(0.3, 0.7, land);',
+        '}',
+        'void main(){',
+        '  vec3 p = normalize(vP); float la = asin(clamp(p.y, -1.0, 1.0)), lo = atan(p.x, p.z);',
+        '  vec3 ocean = vec3(0.047, 0.039, 0.02);',
+        '  float px = max(length(dFdx(vP)), length(dFdy(vP)));',
+        '  float L = log2(max(px * 9.0, 1.2e-4)), fl = floor(L), t = fract(L);',
+        '  float d = 0.0, coast = 0.0, bord = 0.0, fill = 0.0;',
+        '  if (ready > 0.5) {',
+        '    vec3 m = texture2D(map, uvOf(la, lo)).rgb;',
+        '    d = mix(layer(la, lo, exp2(fl), px), layer(la, lo, exp2(fl + 1.0), px), t);',
+        '    coast = clamp(1.0 - abs(m.r - 0.5) / (fwidth(m.r) * 1.4 + 0.002), 0.0, 1.0);',
+        '    bord = smoothstep(0.15, 0.8, m.g); fill = smoothstep(0.3, 0.7, m.r);',
+        '  }',
+        '  float rim = pow(1.0 - max(dot(vN, vV), 0.0), 5.0);',
+        '  vec3 col = ocean + c * k * (d * 0.95 + fill * 0.07 + coast * 0.75 + bord * 0.3) + c * rim * 0.35 * k;',
+        '  gl_FragColor = vec4(col, 1.0);',
+        '}'].join('\n') });
+    var surf = new THREE.Mesh(new THREE.SphereGeometry(.9985, 384, 192), surfM); surf.visible = false; world.add(surf);
     var n = LAND.length / 6, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     for (var i = 0; i < n; i++) {
       var lat = parseInt(LAND.substr(i * 6, 3), 36) / 10 - 90, lon = parseInt(LAND.substr(i * 6 + 3, 3), 36) / 10 - 180, v = ll(lat, lon, 1.002);
@@ -514,7 +547,7 @@
 
     G = { r: r, s: s, cam: cam, world: world, core: core, hud: hud, arc: arc, arc2: arc2, marker: marker, ripples: ripples, flash: flash, beam: beam, glow: glow, cross: cross,
       horizon: horizon, horizonLine: horizonLine, hlPts: hlPts, bulkPts: bulkPts, selPt: selPt, selRing: selRing, orbit: orbit, padM: padM, tex: tex,
-      landM: landM, detail: detail, detailM: detailM, backM: backM, gridM: gridM, rimM: rimM, atmoM: atmoM, tickM: tickM,
+      surf: surf, surfM: surfM, landM: landM, detail: detail, detailM: detailM, backM: backM, gridM: gridM, rimM: rimM, atmoM: atmoM, tickM: tickM,
       t0: performance.now(), drag: false, done: false, ty: 0, tx: 0, sy: 0, sx: 0, zoom: 6.4, fly: null, w: 1, h: 1 };
 
     var gx = 0, gy = 0, sx0 = 0, sy0 = 0, moved = 0, ptrs = {}, pinch = null;
@@ -539,8 +572,8 @@
       moved = Math.max(moved, Math.abs(e.clientX - sx0) + Math.abs(e.clientY - sy0));
       if (moved < 4) return;
       G.done = true; G.fly = null; follow = false;
-      var sp = G_LOCK === 'pin' ? .005 : .006 * Math.min(1, ((G.camR || G.cam.position.z) - 1) / 5.4); // turn slower when close to the surface
-      if (G_LOCK === 'pin') { PIN_YAW += (e.clientX - gx) * .006; PIN_PITCH = Math.max(3 * D, Math.min(90 * D, PIN_PITCH + (e.clientY - gy) * .005)); gx = e.clientX; gy = e.clientY; return; }
+      var sp = .006 * Math.min(1, ((G.camR || G.cam.position.z) - 1) / 5.4); // turn slower when close to the surface
+      if (G.pmode) { PIN_YAW += (e.clientX - gx) * .006; PIN_PITCH = Math.max(3 * D, Math.min(90 * D, PIN_PITCH + (e.clientY - gy) * .005)); gx = e.clientX; gy = e.clientY; return; }
       unPin();
       G.world.rotation.y += (e.clientX - gx) * sp;
       G.world.rotation.x = Math.max(-1.5, Math.min(1.5, G.world.rotation.x + (e.clientY - gy) * sp));
@@ -562,7 +595,7 @@
   function zoomAt(cx, cy, f) {
     if (!G) return;
     G.userZoom = true;
-    if (G_LOCK === 'pin') { G.zoom = Math.max(PMIN, Math.min(PMAX, G.zoom * f)); return; } // straight in toward the pin
+    if (G.pmode) { G.zoom = Math.max(PMIN, Math.min(PMAX, G.zoom * f)); return; } // straight in toward the pin
     unPin();
     var oldAlt = G.zoom - 1, alt = Math.max(ZMIN - 1, Math.min(ZMAX - 1, oldAlt * f));
     G.zoom = 1 + alt;
@@ -578,7 +611,7 @@
     G.world.rotation.y = cy0 + dy * a;
     G.world.rotation.x = Math.max(-1.3, Math.min(1.3, G.world.rotation.x + (la - G.world.rotation.x) * a));
   }
-  function globeResize() { if (!G) return; var b = gc.getBoundingClientRect(); if (!b.width) return; if (!G.userZoom) G.zoom = (b.width < 600 ? 5.3 : 6.4) - (G_LOCK === 'pin' ? 1 : 0); G.r.setSize(b.width, b.height, false); G.cam.aspect = b.width / b.height; G.cam.updateProjectionMatrix(); G.w = b.width; G.h = b.height; }
+  function globeResize() { if (!G) return; var b = gc.getBoundingClientRect(); if (!b.width) return; if (!G.userZoom && !G.pmode) G.zoom = b.width < 600 ? 5.3 : 6.4; G.r.setSize(b.width, b.height, false); G.cam.aspect = b.width / b.height; G.cam.updateProjectionMatrix(); G.w = b.width; G.h = b.height; }
 
   function placeObserver() {
     var nrm = ll(obs.lat, obs.lon, 1).normalize();
@@ -673,7 +706,7 @@
       var f = ease(clamp((t - G.fly.t0) / (reduce ? 1 : 1100)));
       G.world.rotation.x = G.fly.x0 + (G.fly.x1 - G.fly.x0) * f; G.world.rotation.y = G.fly.y0 + (G.fly.y1 - G.fly.y0) * f;
       if (f >= 1) G.fly = null;
-    } else if (follow && sel && sel.ok && !G.drag && G_LOCK !== 'pin') {
+    } else if (follow && sel && sel.ok && !G.drag && !G.pmode) {
       var la = Math.atan2(sel.p.z, Math.sqrt(sel.p.x * sel.p.x + sel.p.y * sel.p.y)), lo = Math.atan2(sel.p.y, sel.p.x);
       var tyy = -lo, cy = G.world.rotation.y, dy = ((tyy - cy) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
       G.world.rotation.y = cy + dy * .06;
@@ -682,7 +715,7 @@
     var zoomNow = 9.6 - (9.6 - G.zoom) * k;
     G.cam.position.set(0, 0, T < ROT ? zoomNow : G.cam.position.z + (G.zoom - G.cam.position.z) * .15);
     G.cam.lookAt(0, 0, 0);
-    if (G.pinK == null) G.pinK = G_LOCK === 'pin' ? 1 : 0;
+    if (G.pinK == null) G.pinK = 0;
     pinFrame();
     var CZ = G.camR;
     var sc = .7 + .3 * easeOut(clamp(T / 1.6)); G.world.scale.setScalar(sc); G.hud.scale.setScalar(sc);
@@ -691,9 +724,13 @@
     var zr = clamp((4.4 - CZ) / 2), zf = zr * zr * (3 - 2 * zr), tf = .6 * clamp((3.4 - CZ) / 1.4); // close-zoom detail and trail strength
     G.landM.opacity = fade * G.landDim * (1 - zf);
     G.landM.size = .026 * Math.min(1, (CZ - 1) / 5.2); // base dots shrink as you zoom so they hand over smoothly to the fine grid
-    G.detailM.opacity = zf * Math.max(G.landDim, .75); G.detail.visible = zf > .01;
+    var sReady = G.surfM.uniforms.ready.value > .5;
+    if (zf > .01) loadSurface();
+    G.surf.visible = zf > .01; G.surfM.uniforms.k.value = zf;
+    G.detailM.opacity = sReady ? 0 : zf * Math.max(G.landDim, .75); G.detail.visible = !sReady && zf > .01;
+    var far = clamp((CZ - 1.12) / .5); // haloes that only make sense from space fade out near the ground
     G.bulkPts.userData.trails.material.opacity = tf;
-    TRAIL_S = 6 + 19 * clamp((CZ - 1) / 3); G.backM.opacity = .1 * fade; G.gridM.opacity = .09 * fade; G.rimM.uniforms.k.value = fade; G.atmoM.uniforms.k.value = fade; G.tickM.opacity = .35 * fade;
+    TRAIL_S = 6 + 19 * clamp((CZ - 1) / 3); G.backM.opacity = .1 * fade * clamp((CZ - 1.6) / .8); G.gridM.opacity = .09 * fade; G.rimM.uniforms.k.value = fade * far; G.atmoM.uniforms.k.value = fade * far; G.tickM.opacity = .35 * fade;
     G.hlPts.material.opacity = fade; G.bulkPts.material.opacity = .9 * fade;
     G.hud.rotation.z = t / 9000; G.arc.rotation.z = -t / 2500; G.arc2.rotation.z = t / 3200;
 
@@ -1270,14 +1307,8 @@
   function setLock(m) {
     if (m === G_LOCK) return;
     G_LOCK = m; store('evo.lock', m);
-    lockLabel();
-    $('lockBtn').setAttribute('aria-pressed', m === 'pin');
-    if (!G) return;
-    // keep the same height above the ground when the pivot moves
-    G.zoom = m === 'pin' ? Math.max(PMIN, G.zoom - 1) : Math.max(ZMIN, G.zoom + 1);
-    G.cam.position.z = m === 'pin' ? Math.max(PMIN, G.cam.position.z - 1) : G.cam.position.z + 1;
+    lockLabel(); $('lockBtn').setAttribute('aria-pressed', m === 'pin');
     follow = false;
-    if (m === 'pin') { PIN_YAW = 0; PIN_PITCH = 35 * D; } else flyTo(obs.lat, obs.lon);
   }
   function lockLabel() { $('lockBtn').innerHTML = '<span class="wide">Orbit: </span>' + (G_LOCK === 'pin' ? 'my pin' : 'Earth'); }
   lockLabel();
@@ -1288,12 +1319,38 @@
   // is level (local up = screen up) and the pin sits at the point the camera looks at.
   // Dragging sideways walks around the pin, dragging up and down lowers or raises your view toward the horizon.
   var PIN_YAW = 0, PIN_PITCH = 35 * D, qE = new THREE.Quaternion(), qP = new THREE.Quaternion(), qT = new THREE.Quaternion(), mB = new THREE.Matrix4();
+  var PIN_STATE = null, landReq = false;
+  function loadSurface() {
+    if (landReq) return; landReq = true;
+    var big = G.r.capabilities.maxTextureSize >= 8192;
+    new THREE.TextureLoader().load(big ? 'land8k.png' : 'land4k.png', function (tx) {
+      tx.anisotropy = Math.min(8, G.r.capabilities.getMaxAnisotropy());
+      G.surfM.uniforms.map.value = tx; G.surfM.uniforms.ready.value = 1;
+    }, undefined, function () { /* stay on the dot layer when the map can't be fetched (e.g. inside an artifact) */ });
+  }
+  // The pivot is your pin (pin lock) or, while a launch card is open, a point along its ascent seen side-on.
+  function pivotMode() { return !obs ? null : prof && focusPad ? 'launch' : G_LOCK === 'pin' ? 'pin' : null; }
+  function launchPivot() { var p = prof.p, q = gcPoint(prof.l.lat, prof.l.lon, p.az, p.Dr * .45); return ll(q.lat, q.lon, 1); }
+  function switchPivot(a, b) {
+    if (a === 'pin') PIN_STATE = { yaw: PIN_YAW, pitch: PIN_PITCH, zoom: G.zoom };
+    if (!a) { G.earthZoom = G.zoom; G.cam.position.z = Math.max(PMIN, G.cam.position.z - 1); }
+    if (!b) { G.zoom = G.earthZoom || 6; G.cam.position.z = G.camR || G.cam.position.z + 1; if (a === 'pin') flyTo(obs.lat, obs.lon); return; }
+    if (b === 'pin') { var st = PIN_STATE || { yaw: 0, pitch: 35 * D, zoom: Math.max(PMIN, (G.earthZoom || 6) - 1) }; PIN_YAW = st.yaw; PIN_PITCH = st.pitch; G.zoom = st.zoom; }
+    if (b === 'launch') { PIN_YAW = (prof.p.az - 90) * D; PIN_PITCH = 7 * D; G.zoom = Math.max(.35, prof.p.Dr / 6371 * 2.6); }
+    var tgt = b === 'pin' ? G.marker.position : launchPivot();
+    if (!a) G.pivN.copy(tgt);
+  }
   function pinFrame() {
-    var tgt = G_LOCK === 'pin' ? 1 : 0;
+    if (!G.pivN) { G.pivN = new THREE.Vector3(); G.pmode = null; }
+    var mode = pivotMode(), lastLaunch = G.pLaunch;
+    G.pLaunch = mode === 'launch' ? prof : null;
+    if (mode !== G.pmode || (mode === 'launch' && lastLaunch !== prof)) { switchPivot(G.pmode, mode); G.pmode = mode; }
+    var tgt = mode ? 1 : 0;
     G.pinK += (tgt - G.pinK) * .1; if (Math.abs(tgt - G.pinK) < .001) G.pinK = tgt;
     G.eul = G.world.rotation.clone(); // the globe-mode orientation the rest of the code steers
-    if (G.pinK > 0 && obs) {
-      var n = G.marker.position, up = new THREE.Vector3().copy(n).normalize();
+    if (mode) G.pivN.lerp(mode === 'pin' ? G.marker.position : launchPivot(), .1);
+    if (G.pinK > 0) {
+      var n = G.pivN, up = new THREE.Vector3().copy(n).normalize();
       var north = new THREE.Vector3(0, 1, 0).addScaledVector(up, -up.y); if (north.lengthSq() < 1e-6) north.set(0, 0, -1); north.normalize();
       var east = new THREE.Vector3().crossVectors(north, up);
       mB.makeBasis(east, up, north.negate()).transpose(); // local east/up/south onto screen x/y/z
@@ -1301,7 +1358,7 @@
       qT.setFromEuler(new THREE.Euler(PIN_PITCH, PIN_YAW, 0, 'XYZ')).multiply(qP);
       qE.setFromEuler(G.eul);
       G.world.quaternion.copy(qE).slerp(qT, ease(G.pinK));
-      W.copy(n).applyQuaternion(G.world.quaternion).multiplyScalar(G.world.scale.x * ease(G.pinK));
+      W.copy(up).applyQuaternion(G.world.quaternion).multiplyScalar(G.world.scale.x * ease(G.pinK));
       G.world.position.set(-W.x, -W.y, -W.z);
     } else G.world.position.set(0, 0, 0);
     G.hud.position.copy(G.world.position);
