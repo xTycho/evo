@@ -320,7 +320,7 @@
     var q = pv.position, d = q.x * sunV.x + q.y * sunV.y + q.z * sunV.z;
     if (d > 0) s.lit = true; else { var px = q.x - d * sunV.x, py = q.y - d * sunV.y, pz = q.z - d * sunV.z; s.lit = Math.sqrt(px * px + py * py + pz * pz) > RE; }
     s.vis = s.up && s.lit && sunElev < -6;
-    if (pv.velocity) { var v = pv.velocity; s.spd = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+    if (pv.velocity) { var v = pv.velocity; s.spd = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z); s.v = SAT.eciToEcf(v, gmst); }
     s.ok = true;
   }
   function prop(s, date) {
@@ -341,6 +341,22 @@
   function disp(alt) { return alt < 2000 ? 1 + Math.max(alt, 0) / 6371 : 1.314 + .07 * Math.min(1, Math.log(alt / 2000) / Math.log(17.9)); }
   function toScene(e, out) { var r = Math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z), k = disp(r - RE) / r; return out.set(e.y * k, e.z * k, e.x * k); }
   function dotTex() { var c = document.createElement('canvas'); c.width = c.height = 64; var x = c.getContext('2d'); var g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.35, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
+  // satellites get a crisp core inside a thin ring, so they read differently from the soft land dots
+  function satTex() {
+    var c = document.createElement('canvas'); c.width = c.height = 64; var x = c.getContext('2d');
+    var g = x.createRadialGradient(32, 32, 0, 32, 32, 14); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.6, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(32, 32, 14, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 4; x.beginPath(); x.arc(32, 32, 27, 0, Math.PI * 2); x.stroke();
+    return new THREE.CanvasTexture(c);
+  }
+  function mkTrails() {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 64), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(6 * 64), 3));
+    g.setDrawRange(0, 0);
+    var l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    l.frustumCulled = false; return l;
+  }
   function mkPoints(n, size, tex) {
     var g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -416,8 +432,11 @@
     horizon.add(horizonLine);
 
     // satellites
-    var hlPts = mkPoints(256, .075, tex); world.add(hlPts);
-    var bulkPts = mkPoints(1, .018, tex); world.add(bulkPts);
+    var stex = satTex();
+    var hlPts = mkPoints(256, .14, stex); world.add(hlPts);
+    var bulkPts = mkPoints(1, .1, stex); world.add(bulkPts);
+    var hlTrails = mkTrails(), bulkTrails = mkTrails(); world.add(hlTrails); world.add(bulkTrails);
+    hlPts.userData.trails = hlTrails; bulkPts.userData.trails = bulkTrails;
     var selPt = new THREE.Mesh(new THREE.SphereGeometry(.014, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff })); selPt.visible = false; world.add(selPt);
     var selRing = mk(.03, .034, .9); selRing.visible = false; world.add(selRing);
     var og = new THREE.BufferGeometry(); og.setAttribute('position', new THREE.BufferAttribute(new Float32Array(241 * 3), 3));
@@ -493,27 +512,39 @@
     var t1 = (-b - Math.sqrt(disc)) / (2 * a); return t1 > 0 && t1 < 1;
   }
 
-  function writePoints(pts, list, big) {
-    var g = pts.geometry, pa = g.attributes.position, ca = g.attributes.color;
-    if (pa.count < list.length) {
-      var cap = Math.max(list.length, pa.count * 2);
+  function grow(g, n, per) {
+    var pa = g.attributes.position;
+    if (pa.count < n * per) {
+      var cap = Math.max(n * per, pa.count * 2);
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
       g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
-      pa = g.attributes.position; ca = g.attributes.color;
     }
-    var P = pa.array, C = ca.array, w = 0;
+  }
+  var TRAIL_S = 25; // trail length in seconds of flight
+  function writePoints(pts, list, big) {
+    var g = pts.geometry, tg = pts.userData.trails.geometry;
+    grow(g, list.length, 1); grow(tg, list.length, 2);
+    var P = g.attributes.position.array, C = g.attributes.color.array, TP = tg.attributes.position.array, TC = tg.attributes.color.array, w = 0, tw = 0;
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
       if (!s.ok || (onlyUp && !s.up && s !== sel)) continue; // only-above-me: anything below the horizon is not drawn
       toScene(s.p, V); P[w * 3] = V.x; P[w * 3 + 1] = V.y; P[w * 3 + 2] = V.z;
       var r, gg, b;
-      if (s.vis) { r = 1; gg = 1; b = 1; }
-      else if (s.up) { r = 1; gg = .83; b = .4; }
-      else { var k = big ? .8 : .5; r = .996 * k; gg = .702 * k; b = .008 * k; }
-      if (onlyUp && s.up) { var f = Math.min(1, .25 + s.el / 6); r *= f; gg *= f; b *= f; } // fades out as it sinks to the horizon
-      C[w * 3] = r; C[w * 3 + 1] = gg; C[w * 3 + 2] = b; w++;
+      if (s.up) { r = 1; gg = s.vis ? 1 : .95; b = s.vis ? 1 : .82; }          // above you: near-white
+      else { var k = big ? .85 : .55; r = .996 * k; gg = .702 * k; b = .008 * k; } // elsewhere: amber
+      var f = s.up ? Math.min(1, .35 + s.el / 8) : 1;                          // fades as it sinks to the horizon
+      C[w * 3] = r * f; C[w * 3 + 1] = gg * f; C[w * 3 + 2] = b * f; w++;
+      // a short amber trail behind each object above you shows which way it is moving
+      if (s.up && s.v) {
+        var q = { x: s.p.x - s.v.x * TRAIL_S, y: s.p.y - s.v.y * TRAIL_S, z: s.p.z - s.v.z * TRAIL_S };
+        toScene(q, W);
+        TP[tw * 6] = V.x; TP[tw * 6 + 1] = V.y; TP[tw * 6 + 2] = V.z; TP[tw * 6 + 3] = W.x; TP[tw * 6 + 4] = W.y; TP[tw * 6 + 5] = W.z;
+        TC[tw * 6] = .996 * f; TC[tw * 6 + 1] = .702 * f; TC[tw * 6 + 2] = .008; TC[tw * 6 + 3] = TC[tw * 6 + 4] = TC[tw * 6 + 5] = 0;
+        tw++;
+      }
     }
-    g.setDrawRange(0, w); pa.needsUpdate = true; ca.needsUpdate = true;
+    g.setDrawRange(0, w); g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
+    tg.setDrawRange(0, tw * 2); tg.attributes.position.needsUpdate = true; tg.attributes.color.needsUpdate = true;
   }
 
   var bulkCursor = 0, lastOrbit = 0, upBulk = [];
@@ -539,7 +570,8 @@
     G.cam.lookAt(0, 0, 0);
     var sc = .7 + .3 * easeOut(clamp(T / 1.6)); G.world.scale.setScalar(sc); G.hud.scale.setScalar(sc);
     var fade = clamp(T / .9);
-    G.landM.opacity = fade; G.backM.opacity = .1 * fade; G.gridM.opacity = .09 * fade; G.rimM.uniforms.k.value = fade; G.atmoM.uniforms.k.value = fade; G.tickM.opacity = .35 * fade;
+    G.landDim = G.landDim == null ? 1 : G.landDim + ((BULK.length ? .4 : 1) - G.landDim) * .08;
+    G.landM.opacity = fade * G.landDim; G.backM.opacity = .1 * fade; G.gridM.opacity = .09 * fade; G.rimM.uniforms.k.value = fade; G.atmoM.uniforms.k.value = fade; G.tickM.opacity = .35 * fade;
     G.hlPts.material.opacity = fade; G.bulkPts.material.opacity = .9 * fade;
     G.hud.rotation.z = t / 9000; G.arc.rotation.z = -t / 2500; G.arc2.rotation.z = t / 3200;
 
@@ -565,7 +597,7 @@
         writePoints(G.bulkPts, upBulk, false);
       } else writePoints(G.bulkPts, BULK, false);
     }
-    G.bulkPts.visible = BULK.length > 0;
+    G.bulkPts.visible = G.bulkPts.userData.trails.visible = BULK.length > 0;
 
     // selection
     G.world.updateMatrixWorld();
