@@ -65,6 +65,26 @@
   .ln-mini > * { min-width: 0; }
   @media (max-width: 560px) { .ln-mini { left: 0; width: auto; } .ln-mini svg { max-height: 90px; } }
   .ln-mini[hidden] { display: none; }
+  #deepCv { position: absolute; inset: 0; width: 100%; height: 100%; display: none; touch-action: none; }
+  .stage.deep #deepCv { display: block; }
+  .stage.deep #globe, .stage.deep .pin, .stage.deep .ptags, .stage.deep .ln-mini, .stage.deep .bot, .stage.deep .pickhint { display: none !important; }
+  .dtags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; display: none; }
+  .stage.deep .dtags { display: block; }
+  .dtag { position: absolute; left: 0; top: 0; margin: -7px 0 0 10px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--path); white-space: nowrap; }
+  .dtag.pl { color: var(--ink-muted); }
+  .deep-ui { position: absolute; left: 0; bottom: 0; width: min(380px, 100%); pointer-events: auto; border: 1px solid var(--amber); background: rgba(11,11,10,.86); padding: 10px 12px; display: grid; gap: 6px; font-size: 11px; }
+  .deep-ui[hidden] { display: none; }
+  .deep-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .deep-top b { color: var(--ink); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .deep-ui .x { width: 26px; height: 26px; }
+  .deep-ui .d { color: var(--ink-muted); }
+  .deep-ui .v { color: var(--path); }
+  .deep-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .deep-chips button { background: none; border: 1px solid var(--hairline); color: var(--ink-muted); padding: 5px 8px; cursor: pointer; font: inherit; }
+  .deep-chips button[aria-pressed="true"] { border-color: var(--path); color: var(--ink); }
+  .deep-ctl { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+  .deep-ctl .ctl { padding: 5px 9px; }
+  .deep-ctl input { width: 100%; accent-color: #5ce1e6; }
   .ptags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
   .ptag { position: absolute; left: 0; top: 0; margin: -10px 0 0 14px; padding: 6px 9px; border: 1px solid var(--path); background: rgba(11,11,10,.8); display: none; gap: 0; white-space: nowrap; font-size: 11px; line-height: 15px; }
   .ptag.on { display: grid; }
@@ -177,13 +197,22 @@
 <div class="shell">
   <section class="stage" id="stage" aria-label="Globe showing satellites around Earth. Drag to turn it, tap a dot to track it.">
     <canvas id="globe"></canvas>
+    <canvas id="deepCv"></canvas>
+    <div class="dtags" id="deepTags"></div>
     <div class="scan"></div>
     <div class="ptags" id="prevTags" hidden></div>
     <div class="pin" id="pin"><div class="lead"></div><div class="box mono"><span id="pinKind">Tracking</span><b id="pinName">Name</b><span id="pinData">0</span></div></div>
     <div class="hud mono">
       <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
-      <div class="top"><span class="status" id="hudStatus">Scanning sky</span><span class="hud-btns"><button class="hud-btn mono" id="liveBtn" type="button" aria-pressed="false" title="Follow launches as they happen"><i class="dot"></i>Live</button><button class="hud-btn mono" id="lockBtn" type="button" aria-pressed="false" title="Choose what zoom and drag pivot around">Orbit: Earth</button><button class="hud-btn mono" id="recenter" type="button" aria-label="Back to me"><span class="wide">Back to me </span>↻</button><button class="hud-btn mono" id="panelBtn" type="button" aria-pressed="false" title="Show or hide the side panel"><span class="wide">Panel </span>⇥</button></span></div>
+      <div class="top"><span class="status" id="hudStatus">Scanning sky</span><span class="hud-btns"><button class="hud-btn mono" id="liveBtn" type="button" aria-pressed="false" title="Follow launches as they happen"><i class="dot"></i>Live</button><button class="hud-btn mono" id="deepBtn" type="button" aria-pressed="false" title="Solar system and deep-space mission paths">Space</button><button class="hud-btn mono" id="lockBtn" type="button" aria-pressed="false" title="Choose what zoom and drag pivot around">Orbit: Earth</button><button class="hud-btn mono" id="recenter" type="button" aria-label="Back to me"><span class="wide">Back to me </span>↻</button><button class="hud-btn mono" id="panelBtn" type="button" aria-pressed="false" title="Show or hide the side panel"><span class="wide">Panel </span>⇥</button></span></div>
       <div class="ln-mini" id="lnMini" hidden><div class="ln-mini-top"><span class="k" id="lmKind">Launch</span><button class="x" id="lmClose" type="button" aria-label="Close launch">×</button></div><b id="lmName">Mission</b><span class="d" id="lmData">T+00:00</span><svg id="profMini" viewBox="0 0 340 170" aria-hidden="true"></svg></div>
+      <div class="deep-ui mono" id="deepUI" hidden>
+        <div class="deep-top"><b id="deepName">Mission</b><button class="x" id="deepClose" type="button" aria-label="Back to Earth">×</button></div>
+        <div class="deep-chips" id="deepChips" role="group" aria-label="Mission"></div>
+        <span class="d" id="deepNote"></span>
+        <span class="v" id="deepWhen"></span><span id="deepPhase"></span>
+        <div class="deep-ctl"><button class="ctl mono" id="deepPlay" type="button">Pause</button><input type="range" id="deepRange" min="0" max="1000" value="0" aria-label="Mission time"><button class="ctl mono" id="deepNow" type="button">Today</button></div>
+      </div>
       <div class="pickhint mono" id="pickHint" hidden>Tap the globe to set your spot</div>
       <div class="bot">
         <button class="launch-hud mono" id="launchHud" type="button"><span>Next launch <span class="v" id="hudT">--</span></span><span class="nm" id="hudLaunch"></span></button>
@@ -266,7 +295,7 @@
         <svg id="profSvg" viewBox="0 0 340 170" role="img" aria-label="Altitude against time after liftoff"></svg>
         <div class="prof-tip mono" id="profTip" hidden></div>
       </div>
-      <div class="prof-ctl"><span class="prof-btns"><button class="ctl mono" id="lnPlay" type="button">Quick replay</button><button class="ctl mono" id="lnFull" type="button">Full replay</button></span><span class="mono">Now showing <span class="v" id="lnT">T+00:00</span></span></div>
+      <div class="prof-ctl"><span class="prof-btns"><button class="ctl mono" id="lnPlay" type="button">Quick replay</button><button class="ctl mono" id="lnFull" type="button">Full replay</button><button class="ctl mono" id="lnDeep" type="button" hidden>Path in space</button></span><span class="mono">Now showing <span class="v" id="lnT">T+00:00</span></span></div>
       <p class="note">Modeled from the target orbit and a typical ascent, not live telemetry. Cyan is the upper stage, dashed white the first stage after separation. Drag across the chart to scrub the flight on the globe.</p>
     </div>
 
@@ -1017,6 +1046,7 @@
   }
 
   function showPad(l, fromLive, full) {
+    if (deepOn) setDeep(false);
     if (!fromLive) setLive(false);
     sel = null; $('selCard').hidden = true; focusPad = l; follow = false;
     openProfile(l); prof.live = !!fromLive;
@@ -1157,15 +1187,17 @@
   // ---------- launch flight profile (modeled, not telemetry) ----------
   // Notable past flights for the History tab. Times are the real liftoff times (UTC); the paths are modeled.
   var HISTORY = [
+    { mission: 'Artemis II', rocket: 'SLS Block 1', net: '2026-04-01T22:35:12Z', orbit: 'TLI', location: 'Kennedy Space Center, LC-39B', lat: 28.627, lon: -80.621, note: 'First crew around the Moon since 1972', deep: 'artemis2' },
     { mission: 'Starship Flight 11', rocket: 'Starship', net: '2025-10-13T23:23:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'Last flight of the second-generation ship, splashdown in the Indian Ocean' },
     { mission: 'Starship Flight 10', rocket: 'Starship', net: '2025-08-26T23:30:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'First Starlink simulator deploy and a controlled ship splashdown' },
     { mission: 'Starship Flight 5', rocket: 'Starship', net: '2024-10-13T12:25:00Z', orbit: 'Sub', location: 'Starbase, Texas', lat: 25.997, lon: -97.157, note: 'First booster caught by the launch tower arms' },
     { mission: 'New Glenn NG-1', rocket: 'New Glenn', net: '2025-01-16T07:03:00Z', orbit: 'MEO', location: 'Cape Canaveral SFS, LC-36', lat: 28.471, lon: -80.538, note: 'Blue Origin reaches orbit on its first try' },
-    { mission: 'Europa Clipper', rocket: 'Falcon Heavy', net: '2024-10-14T16:06:00Z', orbit: 'Helio-N/A', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'NASA probe on its way to Jupiter\'s moon Europa' },
+    { mission: 'Europa Clipper', rocket: 'Falcon Heavy', net: '2024-10-14T16:06:00Z', orbit: 'Helio-N/A', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'NASA probe on its way to Jupiter\'s moon Europa', deep: 'clipper' },
     { mission: 'Polaris Dawn', rocket: 'Falcon 9 Block 5', net: '2024-09-10T09:23:00Z', orbit: 'HEO', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'First commercial spacewalk, highest crewed orbit since Apollo' },
     { mission: 'Starliner Crew Flight Test', rocket: 'Atlas V N22', net: '2024-06-05T14:52:00Z', orbit: 'LEO', location: 'Cape Canaveral SFS, SLC-41', lat: 28.583, lon: -80.583, note: 'First crew on Boeing Starliner, to the ISS' },
-    { mission: 'Artemis I', rocket: 'SLS Block 1', net: '2022-11-16T06:47:00Z', orbit: 'TLI', location: 'Kennedy Space Center, LC-39B', lat: 28.627, lon: -80.621, note: 'Uncrewed Orion around the Moon and back' },
-    { mission: 'James Webb Space Telescope', rocket: 'Ariane 5 ECA', net: '2021-12-25T12:20:00Z', orbit: 'L2', location: 'Guiana Space Centre, ELA-3', lat: 5.239, lon: -52.768, note: 'Space telescope sent toward the Sun-Earth L2 point' },
+    { mission: 'Artemis I', rocket: 'SLS Block 1', net: '2022-11-16T06:47:00Z', orbit: 'TLI', location: 'Kennedy Space Center, LC-39B', lat: 28.627, lon: -80.621, note: 'Uncrewed Orion around the Moon and back', deep: 'artemis1' },
+    { mission: 'JUICE', rocket: 'Ariane 5 ECA', net: '2023-04-14T12:14:00Z', orbit: 'Helio-N/A', location: 'Guiana Space Centre, ELA-3', lat: 5.239, lon: -52.768, note: 'ESA probe to Jupiter\'s icy moons, arriving 2031', deep: 'juice' },
+    { mission: 'James Webb Space Telescope', rocket: 'Ariane 5 ECA', net: '2021-12-25T12:20:00Z', orbit: 'L2', location: 'Guiana Space Centre, ELA-3', lat: 5.239, lon: -52.768, note: 'Space telescope sent toward the Sun-Earth L2 point', deep: 'jwst' },
     { mission: 'Crew Dragon Demo-2', rocket: 'Falcon 9 Block 5', net: '2020-05-30T19:22:00Z', orbit: 'LEO', location: 'Kennedy Space Center, LC-39A', lat: 28.608, lon: -80.604, note: 'First astronauts launched from the US since 2011' }
   ].map(function (l) { l.status = 'Success'; l.hist = true; return l; });
   var ORBIT_TXT = { LEO: 'Low Earth', SSO: 'Sun-synchronous', PO: 'Polar', GTO: 'Geo transfer', GEO: 'Geostationary', MEO: 'Medium Earth', HEO: 'Highly elliptical', TLI: 'Moon', 'Lunar': 'Moon', Mars: 'Mars', 'Helio-N/A': 'Deep space', Sub: 'Suborbital', L2: 'Sun-Earth L2' };
@@ -1243,7 +1275,7 @@
     prof = { l: l, p: p, t0: performance.now(), manual: null };
     if (G) G.lzUser = false;
     $('lnCard').hidden = false;
-    $('lnName').textContent = l.mission;
+    $('lnName').textContent = l.mission; $('lnDeep').hidden = !l.deep;
     $('lnSub').textContent = l.rocket + ' · ' + l.location;
     $('lnOrbit').textContent = (ORBIT_TXT[l.orbit] || l.orbit || 'Not given') + (p.dest ? ' ' + p.dest : '');
     $('lnInc').textContent = p.inc.toFixed(1) + '°';
@@ -1384,6 +1416,7 @@
     svg.addEventListener('pointerleave', release);
     svg.addEventListener('pointerup', function (e) { if (e.pointerType !== 'mouse') release(); });
     $('lnPlay').addEventListener('click', function () { if (prof) { setLive(false); prof.live = prof.full = false; prof.epoch = null; prof.manual = null; prof.t0 = performance.now(); } });
+    $('lnDeep').addEventListener('click', function () { if (prof && prof.l.deep) setDeep(true, prof.l.deep); });
     $('lnFull').addEventListener('click', function () { if (prof) { setLive(false); fullReplay(); } });
     $('lnClear').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
     $('lmClose').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
@@ -1657,6 +1690,7 @@
   }
   function setLive(on) {
     if (on === liveOn) return;
+    if (on && deepOn) setDeep(false);
     liveOn = on; $('liveBtn').setAttribute('aria-pressed', on);
     clearInterval(liveTimer); liveTimer = null;
     if (on) { liveSwitched = 0; liveIdx = -1; liveTick(); liveTimer = setInterval(liveTick, 1000); }
@@ -1732,7 +1766,224 @@
   try { initGlobe(); intro(); } catch (e) { G = null; $('hudStatus').textContent = '3D view unavailable'; }
   tryLiveLaunches();
   tryLiveHighlights();
-  function frame(t) { if (G) globeFrame(t); else { now = new Date(); gmst = SAT.gstime(now); HL.forEach(function (s) { prop(s, now); }); } updateAll(false); requestAnimationFrame(frame); }
+  // ---------- deep space: Earth-Moon, Webb at L2 and the solar system, with full mission paths ----------
+  // Distances are true to scale in every view. Paths are modeled from the real mission timelines
+  // (dates of launch, flybys and arrivals), not from navigation data.
+  var deepOn = false, DS = null, deepMis = null, deepT = 0, deepPlay = true, deepLast = 0;
+  var DAY = 864e5, AU = 10; // solar view: 10 scene units per AU
+  var PLANETS = [ // J2000 elements and rates per century (JPL approximate positions)
+    ['Mercury', .38709927, .20563593, 7.00497902, 252.25032350, 149472.67411175, 77.45779628, 48.33076593],
+    ['Venus', .72333566, .00677672, 3.39467605, 181.97909950, 58517.81538729, 131.60246718, 76.67984255],
+    ['Earth', 1.00000261, .01671123, -.00001531, 100.46457166, 35999.37244981, 102.93768193, 0],
+    ['Mars', 1.52371034, .09339410, 1.84969142, -4.55343205, 19140.30268499, -23.94362959, 49.55953891],
+    ['Jupiter', 5.20288700, .04838624, 1.30439695, 34.39644051, 3034.74612775, 14.72847983, 100.47390909],
+    ['Saturn', 9.53667594, .05386179, 2.48599187, 49.95424423, 1222.49362201, 92.59887831, 113.66242448],
+    ['Uranus', 19.18916464, .04725744, .77263783, 313.23810451, 428.48202785, 170.95427630, 74.01692503],
+    ['Neptune', 30.06992276, .00859048, 1.77004347, -55.12002969, 218.45945325, 44.96476227, 131.78422574]
+  ];
+  function planetAt(name, ms) { // heliocentric ecliptic position in AU
+    var q = PLANETS.filter(function (x) { return x[0] === name; })[0], T = (ms - Date.UTC(2000, 0, 1, 12)) / (36525 * DAY);
+    var a = q[1], e = q[2], I = q[3] * D, L = (q[4] + q[5] * T) * D, wb = q[6] * D, Om = q[7] * D, w = wb - Om, M = L - wb;
+    M = ((M % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    var E = M; for (var k = 0; k < 8; k++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    var x = a * (Math.cos(E) - e), y = a * Math.sqrt(1 - e * e) * Math.sin(E);
+    var cw = Math.cos(w), sw = Math.sin(w), cO = Math.cos(Om), sO = Math.sin(Om), cI = Math.cos(I), sI = Math.sin(I);
+    return { x: (cw * cO - sw * sO * cI) * x + (-sw * cO - cw * sO * cI) * y, y: (cw * sO + sw * cO * cI) * x + (-sw * sO + cw * cO * cI) * y, z: sw * sI * x + cw * sI * y };
+  }
+  function eclV(p, s) { return new THREE.Vector3(p.x * s, p.z * s, -p.y * s); } // ecliptic plane is the scene's XZ plane, north up
+
+  // An interplanetary leg between two planet encounters, drawn as a smooth prograde arc. The number of
+  // extra turns is the one whose angular rate best matches an orbit between the two radii.
+  function legPts(a, b, out) {
+    var r1 = Math.hypot(a.p.x, a.p.y), r2 = Math.hypot(b.p.x, b.p.y), t1 = Math.atan2(a.p.y, a.p.x), t2 = Math.atan2(b.p.y, b.p.x);
+    var yrs = (b.t - a.t) / (365.25 * DAY), am = (r1 + r2) / 2, want = 2 * Math.PI * yrs / Math.pow(am, 1.5), dt = t2 - t1, best = 1e9, sweep = 0;
+    for (var k = 0; k < 4; k++) { var s = ((dt % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) + k * 2 * Math.PI; if (Math.abs(s - want) < best) { best = Math.abs(s - want); sweep = s; } }
+    var bulge = Math.abs(r2 - r1) < .3 ? Math.min(.6, .28 * yrs) * r1 : 0; // a flyby of the same planet loops outward between visits
+    var n = 120, w = [], acc = 0, pts = [];
+    for (var i = 0; i <= n; i++) {
+      var u = i / n, r = 1 / (1 / r1 + (1 / r2 - 1 / r1) * (u * u * (3 - 2 * u))) + bulge * Math.sin(Math.PI * u), th = t1 + sweep * u;
+      pts.push({ x: r * Math.cos(th), y: r * Math.sin(th), z: a.p.z + (b.p.z - a.p.z) * u, r: r });
+    }
+    for (i = 0; i <= n; i++) { w.push(acc); if (i < n) acc += Math.pow((pts[i].r + pts[i + 1].r) / 2, 1.5); } // slower far from the Sun
+    pts.forEach(function (p, j) { out.push({ t: a.t + (b.t - a.t) * w[j] / acc, v: eclV(p, AU) }); });
+  }
+  function haloPt(ph) { return [15 + 2 * Math.cos(ph), 8.3 * Math.sin(ph), 5.2 * Math.cos(ph)]; } // around Sun-Earth L2, 1.5 million km out
+
+  // Keypoints: [day after launch, x, y, z] in 100,000 km. Earth-Moon views use a frame that turns with the Moon
+  // (Moon fixed on +x), the way NASA draws Artemis. Webb uses a frame that turns with the Sun (Sun far off on -x).
+  var MOON = 3.844;
+  var DEEP = [
+    { id: 'artemis2', name: 'Artemis II', view: 'moon', t0: '2026-04-01T22:35:12Z', frame: 'Earth-Moon frame, turning with the Moon', note: 'Crewed lunar flyby on a free-return figure eight',
+      k: [[0, .07, 0, 0, 'Liftoff'], [.25, -.3, .05, -.35], [.5, -.72, 0, .05, 'High Earth orbit'], [.8, -.2, 0, .3], [1.05, .08, 0, .05, 'Translunar injection'], [2.5, 1.6, 0, -.45], [4, 3.0, 0, -.22], [4.7, MOON - .1, 0, .1],
+        [5.0, MOON + .1, 0, 0, 'Lunar flyby, far side'], [5.3, MOON - .1, 0, -.1], [6.6, 3.0, 0, .22], [8, 1.6, 0, .45, 'Coast home'], [9.2, .15, 0, .08], [9.4, .06, 0, 0, 'Splashdown']] },
+    { id: 'artemis1', name: 'Artemis I', view: 'moon', t0: '2022-11-16T06:47:44Z', frame: 'Earth-Moon frame, turning with the Moon', note: 'Uncrewed Orion into a distant retrograde orbit',
+      k: [[0, .07, 0, 0, 'Liftoff'], [.12, .02, 0, -.1, 'Translunar injection'], [1.5, 1.2, 0, -.55], [3.5, 2.7, 0, -.62], [4.8, MOON - .25, 0, -.32], [5.25, MOON + .03, 0, 0, 'Outbound flyby'], [6.4, MOON + .35, 0, .3], [8, MOON + .3, 0, .75],
+        [9.6, MOON, 0, .9, 'Distant retrograde orbit'], [11.7, MOON + .32, 0, .64], [12.6, MOON + .45, 0, 0], [13.5, MOON + .32, 0, -.64], [15.6, MOON, 0, -.9, 'Leaves the orbit'], [17.5, MOON + .32, 0, -.55],
+        [19.4, MOON + .03, 0, .02, 'Return flyby'], [21, 3.0, 0, .55], [23.5, 1.4, 0, .6, 'Coast home'], [25.2, .2, 0, .2], [25.45, .06, 0, .03, 'Splashdown']] },
+    { id: 'jwst', name: 'James Webb', view: 'l2', t0: '2021-12-25T12:20:00Z', frame: 'Sun-Earth frame, turning with the Sun (Sun far off to the left)', note: 'Month-long cruise to a halo orbit around L2', halo: true,
+      k: [[0, .07, 0, 0, 'Liftoff'], [1, .7, .2, .15], [6, 5.2, 1.8, 1.6], [15, 10.6, 3.6, 3.2, 'Cruise to L2'], [29.6, 16.46, 5.66, 3.8, 'Halo orbit around L2']] },
+    { id: 'clipper', name: 'Europa Clipper', view: 'sun', t0: '2024-10-14T16:06:00Z', note: 'Mars and Earth gravity assists, then Jupiter in April 2030',
+      legs: [['Earth', '2024-10-14T16:06:00Z', 'Launch'], ['Mars', '2025-03-01T17:00:00Z', 'Mars flyby'], ['Earth', '2026-12-03T00:00:00Z', 'Earth flyby'], ['Jupiter', '2030-04-11T00:00:00Z', 'Arrives at Jupiter']] },
+    { id: 'juice', name: 'JUICE', view: 'sun', t0: '2023-04-14T12:14:00Z', note: 'Four flybys of Earth, the Moon and Venus on the way to Jupiter',
+      legs: [['Earth', '2023-04-14T12:14:00Z', 'Launch'], ['Earth', '2024-08-20T21:57:00Z', 'Moon and Earth flyby'], ['Venus', '2025-08-31T05:28:00Z', 'Venus flyby'], ['Earth', '2026-09-29T00:00:00Z', 'Earth flyby'], ['Earth', '2029-01-18T00:00:00Z', 'Earth flyby'], ['Jupiter', '2031-07-21T00:00:00Z', 'Arrives at Jupiter']] }
+  ];
+  DEEP.forEach(function (m) {
+    m.ts = +new Date(m.t0); m.ev = [];
+    if (m.k) {
+      if (m.halo) for (var d = 45, ph = .75; d <= 400; d += 15) { ph += 2 * Math.PI * 15 / 180; var h = haloPt(ph); m.k.push([d, h[0], h[1], h[2]]); }
+      var pts = m.k.map(function (q) { return m.view === 'moon' ? new THREE.Vector3(q[1], q[2], -q[3]) : new THREE.Vector3(q[1], q[3], -q[2]); }) /* Artemis keypoints are [day, x, up, y] */, cv = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+      m.samp = []; var n = (m.k.length - 1) * 24;
+      for (var i = 0; i <= n; i++) { var u = i / n, seg = Math.min(m.k.length - 2, Math.floor(u * (m.k.length - 1))), f = u * (m.k.length - 1) - seg; m.samp.push({ t: m.ts + (m.k[seg][0] + (m.k[seg + 1][0] - m.k[seg][0]) * f) * DAY, v: cv.getPoint(u) }); }
+      m.k.forEach(function (q, j) { if (q[4]) m.ev.push({ t: m.ts + q[0] * DAY, name: q[4], v: pts[j] }); });
+    } else {
+      var en = m.legs.map(function (L) { var t = +new Date(L[1]); return { t: t, p: planetAt(L[0], t), name: L[2], body: L[0] }; });
+      m.samp = []; for (var j2 = 0; j2 < en.length - 1; j2++) legPts(en[j2], en[j2 + 1], m.samp);
+      en.forEach(function (e) { m.ev.push({ t: e.t, name: e.name, v: eclV(e.p, AU) }); });
+      m.end = en[en.length - 1];
+    }
+    m.te = m.samp[m.samp.length - 1].t;
+  });
+  function deepPos(m, t) { // spacecraft position at time t, and how far along the path that is
+    var s = m.samp; if (t <= s[0].t) return { v: s[0].v.clone(), i: 0 };
+    if (t >= m.te) { if (m.end) return { v: eclV(planetAt(m.end.body, t), AU), i: s.length - 1 }; if (m.halo) { var ph = .75 + 2 * Math.PI * ((t - m.ts) / DAY - 29.6) / 180, h = haloPt(ph); return { v: new THREE.Vector3(h[0], h[2], -h[1]), i: s.length - 1 }; } return { v: s[s.length - 1].v.clone(), i: s.length - 1 }; }
+    var lo = 0, hi = s.length - 1; while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (s[mid].t <= t) lo = mid; else hi = mid; }
+    var f = (t - s[lo].t) / Math.max(1, s[hi].t - s[lo].t); return { v: s[lo].v.clone().lerp(s[hi].v, f), i: lo + f };
+  }
+  function moonAngle(t) { var T = (t - Date.UTC(2000, 0, 1, 12)) / (36525 * DAY); return (297.85036 + 445267.111480 * T) * D + Math.PI; } // Sun-Earth frame: elongation from the anti-Sun side
+
+  function deepInit() {
+    var cv = $('deepCv'), r = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    var s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(40, 1, .001, 5000);
+    var dotT = (function () { var c = document.createElement('canvas'); c.width = c.height = 64; var x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.3, 'rgba(255,255,255,.95)'); g.addColorStop(.55, 'rgba(255,255,255,.25)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+    function sprite(size, color) { var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)); return new THREE.Points(g, new THREE.PointsMaterial({ size: size, sizeAttenuation: false, map: dotT, color: color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); }
+    function ring(pts, color, op) { var g = new THREE.BufferGeometry().setFromPoints(pts); return new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: op, depthWrite: false })); }
+    function circle(rad, n) { var p = []; for (var i = 0; i <= n; i++) { var a = i / n * Math.PI * 2; p.push(new THREE.Vector3(Math.cos(a) * rad, 0, -Math.sin(a) * rad)); } return p; }
+    // stars
+    var sp = []; for (var i = 0; i < 1400; i++) { var v = new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize().multiplyScalar(2500); sp.push(v.x, v.y, v.z); }
+    var sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+    s.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 1.4, sizeAttenuation: false, color: 0x8a7a50, transparent: true, opacity: .7 })));
+
+    var groups = { moon: new THREE.Group(), l2: new THREE.Group(), sun: new THREE.Group() };
+    Object.keys(groups).forEach(function (k) { s.add(groups[k]); });
+    // Earth-Moon and L2 views: Earth and Moon as true-size spheres plus a marker dot so they stay findable
+    ['moon', 'l2'].forEach(function (k) {
+      var g = groups[k];
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(.06371, 32, 16), new THREE.MeshBasicMaterial({ color: 0x2a2208 })));
+      var e = sprite(9, 0xffffff); g.add(e);
+      g.add(ring(circle(MOON, 256), 0xfeb302, .28));
+      var mo = new THREE.Group(); mo.add(new THREE.Mesh(new THREE.SphereGeometry(.01737, 24, 12), new THREE.MeshBasicMaterial({ color: 0x6b5a2a }))); mo.add(sprite(7, 0xfeb302)); g.add(mo); g['moonObj'] = mo;
+    });
+    var l2m = sprite(6, 0xfeb302); l2m.position.set(15, 0, 0); groups.l2.add(l2m);
+    groups.l2.add(ring([new THREE.Vector3(0, 0, 0), new THREE.Vector3(15, 0, 0)], 0xfeb302, .14));
+    var sunDir = ring([new THREE.Vector3(0, 0, 0), new THREE.Vector3(-6, 0, 0)], 0xfeb302, .35); groups.l2.add(sunDir);
+    // solar system: Sun and planet orbits
+    var sun = sprite(22, 0xfeb302); groups.sun.add(sun); groups.sun.add(sprite(9, 0xffffff));
+    var pl = {};
+    PLANETS.forEach(function (q) {
+      var pts = [], now = Date.now(), per = Math.pow(q[1], 1.5) * 365.25 * DAY;
+      for (var i = 0; i <= 256; i++) pts.push(eclV(planetAt(q[0], now + per * i / 256), AU));
+      groups.sun.add(ring(pts, 0xfeb302, q[0] === 'Earth' ? .5 : .22));
+      var d = sprite(q[0] === 'Earth' ? 8 : 7, q[0] === 'Earth' ? 0xffffff : 0xfeb302); groups.sun.add(d); pl[q[0]] = d;
+    });
+    // mission path: full route dim, flown part bright, plus the craft
+    var path = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.add(path);
+    var craft = sprite(10, 0xffffff), nowDot = sprite(14, 0x5ce1e6), evDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, map: dotT, color: 0x5ce1e6, transparent: true, depthWrite: false }));
+    s.add(craft); s.add(nowDot); s.add(evDots);
+    DS = { r: r, s: s, cam: cam, groups: groups, pl: pl, path: path, craft: craft, nowDot: nowDot, evDots: evDots, az: -.6, el: .9, dist: 14, tgt: new THREE.Vector3(), tgtGoal: new THREE.Vector3(), distGoal: 14 };
+
+    // drag to turn, wheel or pinch to zoom
+    var ptrs = {}, last = null, pinch = null;
+    cv.addEventListener('pointerdown', function (e) { ptrs[e.pointerId] = { x: e.clientX, y: e.clientY }; try { cv.setPointerCapture(e.pointerId); } catch (x) {} last = { x: e.clientX, y: e.clientY }; var k = Object.keys(ptrs); if (k.length === 2) pinch = Math.hypot(ptrs[k[0]].x - ptrs[k[1]].x, ptrs[k[0]].y - ptrs[k[1]].y); });
+    cv.addEventListener('pointermove', function (e) {
+      if (!ptrs[e.pointerId]) return; ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var k = Object.keys(ptrs);
+      if (k.length === 2 && pinch) { var d = Math.hypot(ptrs[k[0]].x - ptrs[k[1]].x, ptrs[k[0]].y - ptrs[k[1]].y); if (d) DS.distGoal = DS.dist = DS.dist * pinch / d; pinch = d; return; }
+      DS.az -= (e.clientX - last.x) * .006; DS.el = Math.max(.05, Math.min(1.55, DS.el + (e.clientY - last.y) * .005)); last = { x: e.clientX, y: e.clientY };
+    });
+    var up = function (e) { delete ptrs[e.pointerId]; if (Object.keys(ptrs).length < 2) pinch = null; };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    cv.addEventListener('wheel', function (e) { e.preventDefault(); DS.distGoal = Math.max(.15, Math.min(900, DS.distGoal * Math.exp(Math.max(-120, Math.min(120, e.deltaY)) * .0015))); }, { passive: false });
+  }
+
+  function deepPick(id) {
+    var m = DEEP.filter(function (x) { return x.id === id; })[0] || DEEP[0]; deepMis = m;
+    document.querySelectorAll('[data-deep]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.deep === m.id ? 'true' : 'false'); });
+    Object.keys(DS.groups).forEach(function (k) { DS.groups[k].visible = k === m.view; });
+    var pos = [], col = [];
+    m.samp.forEach(function (q) { pos.push(q.v.x, q.v.y, q.v.z); col.push(0, 0, 0); });
+    var g = DS.path.geometry; g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.computeBoundingSphere();
+    var ep = []; m.ev.forEach(function (e) { ep.push(e.v.x, e.v.y, e.v.z); }); DS.evDots.geometry.setAttribute('position', new THREE.Float32BufferAttribute(ep, 3));
+    var box = $('deepTags'); box.textContent = ''; m.tags = [];
+    m.ev.forEach(function (e) { if (e.name === 'Liftoff' || e.name === 'Launch') return; var d = el('div', 'dtag mono', e.name); box.appendChild(d); m.tags.push({ el: d, v: e.v }); });
+    if (m.view === 'sun') PLANETS.forEach(function (q) { if (q[1] > 6) return; /* Saturn and beyond sit far outside these paths */ var d = el('div', 'dtag pl mono', q[0]); box.appendChild(d); m.tags.push({ el: d, planet: q[0] }); });
+    else { var dm = el('div', 'dtag pl mono', 'Moon'), de = el('div', 'dtag pl mono', 'Earth'); box.appendChild(dm); box.appendChild(de); m.tags.push({ el: dm, moon: true }, { el: de, v: new THREE.Vector3() }); if (m.view === 'l2') { var dl = el('div', 'dtag pl mono', 'L2'); box.appendChild(dl); m.tags.push({ el: dl, v: new THREE.Vector3(15, 0, 0) }); } }
+    // frame the whole route: the path plus the Moon's orbit or the arrival planet's orbit
+    var bb = new THREE.Box3(); m.samp.forEach(function (q) { bb.expandByPoint(q.v); });
+    bb.expandByPoint(new THREE.Vector3(0, 0, 0));
+    var sph = bb.getBoundingSphere(new THREE.Sphere());
+    DS.tgtGoal.copy(sph.center); DS.distGoal = sph.radius / Math.sin(Math.min(20 * D, Math.atan(Math.tan(20 * D) * DS.w / DS.h))) * 1.22; DS.el = m.view === 'l2' ? .75 : m.view === 'moon' ? 1.35 : 1.1; DS.az = m.view === 'l2' ? -.5 : 0;
+    var nowT = Date.now(); deepT = m.ts; deepPlay = true;
+    m.live = nowT > m.ts && nowT < m.te; // still under way: a ring marks where it is today
+    $('deepName').textContent = m.name; $('deepNote').textContent = m.note + (m.frame ? '. ' + m.frame + '.' : '. Planets and path to true scale.');
+    $('deepRange').value = 0;
+  }
+  function deepSpan(m) { return m.te - m.ts + (m.halo ? 150 * DAY : m.end ? 60 * DAY : 0); }
+  function deepFrame(t) {
+    var m = deepMis, dt = deepLast ? Math.min(100, t - deepLast) : 16; deepLast = t;
+    var span = deepSpan(m), rate = span / 40000; // the whole mission plays in about 40 seconds
+    if (deepPlay) { deepT += dt * rate; if (deepT > m.ts + span) deepT = m.ts + span; }
+    $('deepRange').value = Math.round((deepT - m.ts) / span * 1000);
+    var p = deepPos(m, deepT), c = DS.path.geometry.attributes.color;
+    if (c) { for (var i = 0; i < c.count; i++) { var f = i <= p.i ? .95 : .3; c.setXYZ(i, .36 * f, .88 * f, .9 * f); } c.needsUpdate = true; }
+    DS.craft.position.copy(p.v);
+    DS.nowDot.visible = !!m.live; if (m.live) DS.nowDot.position.copy(deepPos(m, Date.now()).v);
+    if (m.view === 'sun') PLANETS.forEach(function (q) { DS.pl[q[0]].position.copy(eclV(planetAt(q[0], deepT), AU)); });
+    var mo = DS.groups[m.view === 'l2' ? 'l2' : 'moon'].moonObj;
+    if (m.view === 'l2') { var a = moonAngle(deepT); mo.position.set(Math.cos(a) * MOON, 0, -Math.sin(a) * MOON); } else mo.position.set(MOON, 0, 0);
+    // readout
+    var dkm = m.view === 'sun' ? p.v.clone().sub(eclV(planetAt('Earth', deepT), AU)).length() / AU * 1.496e8 : p.v.length() * 1e5;
+    $('deepWhen').textContent = new Date(deepT).toISOString().slice(0, 10) + ' · Day ' + Math.floor((deepT - m.ts) / DAY);
+    var ph = 'Launch'; m.ev.forEach(function (e) { if (deepT >= e.t) ph = e.name; });
+    $('deepPhase').textContent = ph + ' · ' + (dkm >= 1e6 ? (dkm / 1e6).toFixed(dkm >= 1e8 ? 0 : 1) + ' million km' : km(dkm)) + ' from Earth';
+    $('deepPlay').textContent = deepPlay ? 'Pause' : 'Play';
+    // camera
+    DS.tgt.lerp(DS.tgtGoal, .08); DS.dist += (DS.distGoal - DS.dist) * .08;
+    DS.cam.position.set(DS.tgt.x + DS.dist * Math.cos(DS.el) * Math.sin(DS.az), DS.tgt.y + DS.dist * Math.sin(DS.el), DS.tgt.z + DS.dist * Math.cos(DS.el) * Math.cos(DS.az));
+    DS.cam.near = DS.dist / 2000; DS.cam.updateProjectionMatrix(); DS.cam.lookAt(DS.tgt);
+    DS.r.render(DS.s, DS.cam);
+    var w = DS.w, h = DS.h, V3 = new THREE.Vector3();
+    m.tags.forEach(function (g) {
+      if (g.planet) V3.copy(DS.pl[g.planet].position); else if (g.moon) V3.copy(mo.position); else V3.copy(g.v);
+      V3.project(DS.cam); var on = V3.z < 1 && Math.abs(V3.x) < 1.1 && Math.abs(V3.y) < 1.1;
+      g.on = on; g.x = (V3.x * .5 + .5) * w; g.y = (-V3.y * .5 + .5) * h; g.el.style.display = on ? '' : 'none';
+    });
+    var placed = []; // nudge labels apart so close events stay readable
+    m.tags.filter(function (g) { return g.on; }).sort(function (a, b) { return a.y - b.y; }).forEach(function (g) {
+      var wd = g.wd || (g.wd = g.el.offsetWidth || 80), y = g.y;
+      placed.forEach(function (q) { if (g.x < q.x + q.w + 4 && g.x + wd + 4 > q.x && y < q.y + 13 && y + 13 > q.y) y = q.y + 13; });
+      placed.push({ x: g.x, y: y, w: wd }); g.el.style.transform = 'translate(' + g.x.toFixed(0) + 'px,' + y.toFixed(0) + 'px)';
+    });
+  }
+  function deepResize() { if (!DS) return; var b = stage.getBoundingClientRect(); DS.r.setSize(b.width, b.height, false); DS.cam.aspect = b.width / b.height; DS.cam.setViewOffset(b.width, b.height, 0, b.height * .12, b.width, b.height); DS.cam.updateProjectionMatrix(); DS.w = b.width; DS.h = b.height; } // lift the scene above the mission panel
+  function setDeep(on, id) {
+    if (on && !window.THREE) return;
+    if (on && !DS) deepInit();
+    deepOn = on; stage.classList.toggle('deep', on); $('deepBtn').setAttribute('aria-pressed', on); $('deepUI').hidden = !on;
+    if (on) { setLive(false); deepResize(); deepPick(id || (deepMis && deepMis.id) || 'artemis2'); deepLast = 0; $('hudStatus').textContent = 'Deep space'; }
+    else updateAll(true);
+  }
+  $('deepBtn').addEventListener('click', function () { setDeep(!deepOn); });
+  $('deepClose').addEventListener('click', function () { setDeep(false); });
+  $('deepPlay').addEventListener('click', function () { if (deepMis && deepT >= deepMis.ts + deepSpan(deepMis)) deepT = deepMis.ts; deepPlay = !deepPlay; });
+  $('deepRange').addEventListener('input', function () { deepPlay = false; deepT = deepMis.ts + $('deepRange').value / 1000 * deepSpan(deepMis); });
+  $('deepNow').addEventListener('click', function () { var n = Date.now(); if (n > deepMis.ts) { deepT = Math.min(n, deepMis.ts + deepSpan(deepMis)); deepPlay = false; } });
+  var deepChips = $('deepChips');
+  DEEP.forEach(function (m) { var b = el('button', null, m.name); b.type = 'button'; b.dataset.deep = m.id; b.addEventListener('click', function () { deepPick(m.id); }); deepChips.appendChild(b); });
+  window.addEventListener('resize', deepResize);
+
+  function frame(t) { if (deepOn) deepFrame(t); else if (G) globeFrame(t); else { now = new Date(); gmst = SAT.gstime(now); HL.forEach(function (s) { prop(s, now); }); } updateAll(false); requestAnimationFrame(frame); }
   requestAnimationFrame(frame);
 })();
 </script>
