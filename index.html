@@ -58,6 +58,24 @@
   @keyframes blink { 50% { opacity: 0; } }
   .hud-btn { pointer-events: auto; background: rgba(11,11,10,.6); border: 1px solid var(--hairline); padding: 8px 12px; cursor: pointer; white-space: nowrap; }
   .hud-btns { display: flex; gap: 6px; flex: none; }
+  #liveBtn .dot { display: inline-block; width: 6px; height: 6px; border: 1px solid currentColor; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  #liveBtn[aria-pressed="true"] .dot { background: var(--amber); border-color: var(--amber); animation: blink 1s steps(2) infinite; }
+  .ln-mini { position: absolute; top: 44px; right: 0; width: min(280px, 62%); pointer-events: auto; border: 1px solid var(--amber); background: rgba(11,11,10,.84); padding: 10px 12px 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; overflow: hidden; }
+  .ln-mini > * { min-width: 0; }
+  @media (max-width: 560px) { .ln-mini { left: 0; width: auto; } .ln-mini svg { max-height: 90px; } }
+  .ln-mini[hidden] { display: none; }
+  .ln-mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .ln-mini .k { color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ln-mini b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ln-mini .d { color: var(--ink-muted); }
+  .ln-mini .x { background: none; border: 0; color: var(--ink-muted); cursor: pointer; padding: 0 2px; font: inherit; }
+  .ln-mini .x:hover { color: var(--ink); }
+  .ln-mini svg { width: 100%; height: auto; margin-top: 4px; }
+  .ln-mini svg text { fill: var(--ink-faint); font: 500 11px var(--mono, monospace); }
+  .shell.full { grid-template-columns: minmax(0, 1fr) 0; }
+  .shell.full .panel { display: none; }
+  .shell.full .stage { border-right: 0; }
+  @media (max-width: 960px) { .shell.full .stage { aspect-ratio: auto; height: 100vh; height: 100dvh; max-height: none; } }
   @media (max-width: 600px) { .hud .wide { display: none; } }
   .hud-btn[aria-pressed="true"] { color: var(--ink); border-color: var(--amber); }
   .hud-btn:hover { color: var(--ink); border-color: var(--amber); }
@@ -155,7 +173,8 @@
     <div class="pin" id="pin"><div class="lead"></div><div class="box mono"><span id="pinKind">Tracking</span><b id="pinName">Name</b><span id="pinData">0</span></div></div>
     <div class="hud mono">
       <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
-      <div class="top"><span class="status" id="hudStatus">Scanning sky</span><span class="hud-btns"><button class="hud-btn mono" id="lockBtn" type="button" aria-pressed="false" title="Choose what zoom and drag pivot around">Orbit: Earth</button><button class="hud-btn mono" id="recenter" type="button" aria-label="Back to me"><span class="wide">Back to me </span>↻</button></span></div>
+      <div class="top"><span class="status" id="hudStatus">Scanning sky</span><span class="hud-btns"><button class="hud-btn mono" id="liveBtn" type="button" aria-pressed="false" title="Follow launches as they happen"><i class="dot"></i>Live</button><button class="hud-btn mono" id="lockBtn" type="button" aria-pressed="false" title="Choose what zoom and drag pivot around">Orbit: Earth</button><button class="hud-btn mono" id="recenter" type="button" aria-label="Back to me"><span class="wide">Back to me </span>↻</button><button class="hud-btn mono" id="panelBtn" type="button" aria-pressed="false" title="Show or hide the side panel"><span class="wide">Panel </span>⇥</button></span></div>
+      <div class="ln-mini" id="lnMini" hidden><div class="ln-mini-top"><span class="k" id="lmKind">Launch</span><button class="x" id="lmClose" type="button" aria-label="Close launch">×</button></div><b id="lmName">Mission</b><span class="d" id="lmData">T+00:00</span><svg id="profMini" viewBox="0 0 340 170" aria-hidden="true"></svg></div>
       <div class="pickhint mono" id="pickHint" hidden>Tap the globe to set your spot</div>
       <div class="bot">
         <button class="launch-hud mono" id="launchHud" type="button"><span>Next launch <span class="v" id="hudT">--</span></span><span class="nm" id="hudLaunch"></span></button>
@@ -778,11 +797,11 @@
     keepSize(G.marker); if (G.padM.visible) keepSize(G.padM);
     profileFrame(t);
     if (focusPad && prof && prof.s != null && G.pmode === 'launch' && G.upLine) { // in the launch view the label rides with the vehicle
-      pinTarget = W2.fromArray(G.vehicle.geometry.attributes.position.array);
+      pinTarget = null; // the corner card carries the vehicle's phase, time and height
       var ps = prof.p, sp = prof.s;
-      $('pinKind').textContent = sp < 1 ? 'On the pad · ' + prof.l.status : sp < ps.ts ? 'First stage burn' : sp < ps.T ? 'Upper stage burn' : 'Satellite in orbit';
+      $('pinKind').textContent = prof.live && prof.sRaw < 0 ? 'Live · waiting for liftoff' : sp < 1 ? 'On the pad · ' + prof.l.status : phaseOf(ps, sp);
       $('pinName').textContent = prof.l.mission.length > 30 ? prof.l.mission.slice(0, 29) + '…' : prof.l.mission;
-      $('pinData').textContent = 'T+' + mmss(sp) + ' · ' + Math.round(prof.cur.h) + ' km';
+      $('pinData').textContent = prof.live && prof.sRaw < 0 ? tminus(-prof.sRaw * 1000) : 'T+' + mmss(sp) + ' · ' + Math.round(prof.cur.h) + ' km';
     } else if (focusPad && !sel) {
       $('pinKind').textContent = 'Launch pad · ' + focusPad.status; $('pinName').textContent = focusPad.location.split(',')[0];
     }
@@ -951,14 +970,15 @@
       li.appendChild(b); ll2.appendChild(li);
     });
 
-    $('hudStatus').textContent = $('hudStatus').dataset.state === 'locked' ? 'Sky locked · ' + up.length + ' above you' : 'Scanning sky';
+    if (!liveOn) $('hudStatus').textContent = $('hudStatus').dataset.state === 'locked' ? 'Sky locked · ' + up.length + ' above you' : 'Scanning sky';
     var age = Math.max(0, Math.floor((Date.now() - SNAPSHOT_DATE) / 86400000));
     if (liveOrbits) { $('dataAge').textContent = 'Orbits from CelesTrak, refreshed every 2 hours'; } else $('dataAge').textContent = 'Orbit snapshot ' + new Date(SNAPSHOT_DATE).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + (age > 0 ? ' · ' + age + (age === 1 ? ' day' : ' days') + ' old' : ' · fresh') + (age > 10 ? ' · positions drift, refresh data' : '');
   }
 
-  function showPad(l) {
+  function showPad(l, fromLive) {
+    if (!fromLive) setLive(false);
     sel = null; $('selCard').hidden = true; focusPad = l; follow = false;
-    openProfile(l);
+    openProfile(l); prof.live = !!fromLive;
     if (G) {
       var nrm = ll(l.lat, l.lon, 1.004); G.padM.position.copy(nrm); G.padM.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm.clone().normalize());
       var mid = gcPoint(l.lat, l.lon, prof.p.az, prof.p.Dr * .45);
@@ -1157,7 +1177,8 @@
     $('lnIns').textContent = p.H + ' km · T+' + mmss(p.T);
     $('lnDr').textContent = km(p.Dr);
     var d = new Date(l.net); $('lnWhen').textContent = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' + hm(d);
-    drawProfileChart();
+    drawProfileChart('profSvg'); drawProfileChart('profMini', true);
+    $('lnMini').hidden = false; $('lmName').textContent = l.mission;
     if (!G) return;
     ensureProfileObjs();
     var i, v, a = G.upLine.geometry.attributes.position.array;
@@ -1177,8 +1198,9 @@
     G.profEv.geometry.attributes.position.needsUpdate = true; G.profEv.geometry.setDrawRange(0, p.events.length);
   }
   function profObjs() { return G && G.upLine ? [G.upLine, G.orbLine, G.bstLine, G.profEv, G.vehicle, G.bstDot, G.satDot] : []; }
-  function closeProfile() {
-    prof = null; $('lnCard').hidden = true; $('profTip').hidden = true;
+  function closeProfile(keepLive) {
+    if (!keepLive) setLive(false);
+    prof = null; $('lnCard').hidden = true; $('profTip').hidden = true; $('lnMini').hidden = true;
     profObjs().forEach(function (o) { o.visible = false; });
   }
   function ensureProfileObjs() {
@@ -1206,6 +1228,7 @@
   function profS(t) {
     if (!prof) return 0;
     if (prof.manual != null) return prof.manual;
+    if (prof.live) { prof.sRaw = (Date.now() - new Date(prof.l.net)) / 1000; return Math.max(0, Math.min(prof.p.Tend, prof.sRaw)); }
     if (reduce) return prof.p.Tend;
     var r = ((t - prof.t0) / 1000) % (LEAD + PLAY + HOLD);
     return Math.max(0, Math.min(1, (r - LEAD) / PLAY)) * prof.p.Tend;
@@ -1226,13 +1249,21 @@
     G.bstDot.visible = G.bstLine.visible = bOn;
     if (bOn) { setPos(G.bstDot, vec(p, l, boosterAt(p, s), .003)); G.bstDot.material.opacity = s > p.Tb ? Math.max(.25, 1 - (s - p.Tb) / 200) : 1; }
     var x = px(p, s), y = py(p, up.h);
-    if (prof.ph) { prof.ph.setAttribute('x1', x); prof.ph.setAttribute('x2', x); prof.pd.setAttribute('cx', x); prof.pd.setAttribute('cy', y); }
-    if (prof.bd) { var b = boosterAt(p, s); prof.bd.setAttribute('cx', px(p, Math.min(s, p.Tb))); prof.bd.setAttribute('cy', py(p, b.h)); prof.bd.style.display = bOn ? '' : 'none'; }
-    $('lnT').textContent = 'T+' + mmss(s) + ' · ' + (s < p.ts ? 'Stage 1 · ' + Math.round(up.h) + ' km' : s < p.T ? 'Upper stage · ' + Math.round(up.h) + ' km' : 'In orbit · ' + p.H + ' km');
+    var b = boosterAt(p, s), bx = px(p, Math.min(s, p.Tb)), by = py(p, b.h);
+    (prof.marks || []).forEach(function (m) {
+      m.ph.setAttribute('x1', x); m.ph.setAttribute('x2', x); m.pd.setAttribute('cx', x); m.pd.setAttribute('cy', y);
+      m.bd.setAttribute('cx', bx); m.bd.setAttribute('cy', by); m.bd.style.display = bOn ? '' : 'none';
+    });
+    var waiting = prof.live && prof.sRaw < 0;
+    $('lmKind').textContent = (prof.live ? 'Live · ' : 'Replay · ') + (waiting ? 'Waiting for liftoff' : phaseOf(p, s));
+    $('lmData').textContent = waiting ? tminus(-prof.sRaw * 1000) + ' · ' + prof.l.rocket : 'T+' + mmss(s) + ' · ' + Math.round(up.h) + ' km · ' + km(up.d) + ' downrange';
+    $('lnT').textContent = waiting ? tminus(-prof.sRaw * 1000) : 'T+' + mmss(s) + ' · ' + (s < p.ts ? 'Stage 1 · ' + Math.round(up.h) + ' km' : s < p.T ? 'Upper stage · ' + Math.round(up.h) + ' km' : 'In orbit · ' + p.H + ' km');
   }
+  function phaseOf(p, s) { return s < 1 ? 'On the pad' : s < p.ts ? 'First stage burn' : s < p.T ? 'Upper stage burn' : 'Satellite in orbit'; }
 
-  function drawProfileChart() {
-    var p = prof.p, svg = $('profSvg'); svg.textContent = '';
+  function drawProfileChart(id, mini) {
+    var p = prof.p, svg = $(id); svg.textContent = '';
+    if (!mini) prof.marks = [];
     var base = PH - PM.b;
     [0, p.yMax / 2, p.yMax].forEach(function (k) {
       svgEl('line', { x1: PM.l, x2: PW - PM.r, y1: py(p, k), y2: py(p, k), stroke: '#2c2a22', 'stroke-width': 1 }, svg);
@@ -1243,21 +1274,21 @@
       var g = svgEl('g', { 'class': 'ev' }, svg), x = px(p, e[1]);
       svgEl('line', { x1: x, x2: x, y1: PM.t - 4, y2: base, stroke: e[2] === 'bst' ? '#ffffff' : '#feb302', 'stroke-opacity': .3, 'stroke-width': 1, 'stroke-dasharray': '2 3' }, g);
       var anchor = j === 0 ? 'start' : j === p.events.length - 1 ? 'end' : 'middle';
-      svgEl('text', { x: x, y: j % 2 ? 19 : 9, 'text-anchor': anchor }, g).textContent = e[0];
+      if (!mini) svgEl('text', { x: x, y: j % 2 ? 19 : 9, 'text-anchor': anchor }, g).textContent = e[0];
     });
     var d = '', i, s;
     for (i = 0; i <= 140; i++) { s = i / 140 * p.Tc; d += (i ? 'L' : 'M') + px(p, s).toFixed(1) + ' ' + py(p, upperAt(p, s).h).toFixed(1); }
-    var defs = svgEl('defs', {}, svg), lg = svgEl('linearGradient', { id: 'profFill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    var defs = svgEl('defs', {}, svg), lg = svgEl('linearGradient', { id: 'profFill' + (mini ? 'M' : ''), x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
     svgEl('stop', { offset: 0, 'stop-color': '#feb302', 'stop-opacity': .22 }, lg); svgEl('stop', { offset: 1, 'stop-color': '#feb302', 'stop-opacity': 0 }, lg);
-    svgEl('path', { d: d + 'L' + px(p, p.Tc) + ' ' + base + 'L' + PM.l + ' ' + base + 'Z', fill: 'url(#profFill)' }, svg);
+    svgEl('path', { d: d + 'L' + px(p, p.Tc) + ' ' + base + 'L' + PM.l + ' ' + base + 'Z', fill: 'url(#profFill' + (mini ? 'M' : '') + ')' }, svg);
     svgEl('path', { d: d, fill: 'none', stroke: '#feb302', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
     var bd = '';
     for (i = 0; i <= 60; i++) { s = p.ts + i / 60 * (p.Tb - p.ts); bd += (i ? 'L' : 'M') + px(p, s).toFixed(1) + ' ' + py(p, boosterAt(p, s).h).toFixed(1); }
     svgEl('path', { d: bd, fill: 'none', stroke: '#ffffff', 'stroke-opacity': .6, 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }, svg);
     svgEl('line', { x1: PM.l, x2: PW - PM.r, y1: base, y2: base, stroke: '#6d6a61', 'stroke-width': 1 }, svg);
-    prof.ph = svgEl('line', { x1: PM.l, x2: PM.l, y1: PM.t - 4, y2: base, stroke: '#ffffff', 'stroke-opacity': .6, 'stroke-width': 1 }, svg);
-    prof.bd = svgEl('circle', { cx: PM.l, cy: base, r: 3, fill: '#0b0b0a', stroke: '#ffffff', 'stroke-width': 1.5 }, svg);
-    prof.pd = svgEl('circle', { cx: PM.l, cy: base, r: 4, fill: '#ffffff', stroke: '#0b0b0a', 'stroke-width': 2 }, svg);
+    prof.marks.push({ ph: svgEl('line', { x1: PM.l, x2: PM.l, y1: PM.t - 4, y2: base, stroke: '#ffffff', 'stroke-opacity': .6, 'stroke-width': 1 }, svg),
+      bd: svgEl('circle', { cx: PM.l, cy: base, r: 3, fill: '#0b0b0a', stroke: '#ffffff', 'stroke-width': 1.5 }, svg),
+      pd: svgEl('circle', { cx: PM.l, cy: base, r: 4, fill: '#ffffff', stroke: '#0b0b0a', 'stroke-width': 2 }, svg) });
   }
   (function () {
     var svg = $('profSvg'), tip = $('profTip'), resume = null;
@@ -1278,8 +1309,9 @@
     svg.addEventListener('pointerdown', function (e) { try { svg.setPointerCapture(e.pointerId); } catch (x) {} scrub(e); });
     svg.addEventListener('pointerleave', release);
     svg.addEventListener('pointerup', function (e) { if (e.pointerType !== 'mouse') release(); });
-    $('lnPlay').addEventListener('click', function () { if (prof) { prof.manual = null; prof.t0 = performance.now(); } });
+    $('lnPlay').addEventListener('click', function () { if (prof) { setLive(false); prof.live = false; prof.manual = null; prof.t0 = performance.now(); } });
     $('lnClear').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
+    $('lmClose').addEventListener('click', function () { focusPad = null; closeProfile(); updateAll(true); });
   })();
 
   // ---------- sky radar: what is above you, seen from the ground ----------
@@ -1435,6 +1467,44 @@
   }
   // put the globe-mode orientation back before anything steers it, since pin mode overwrote it for drawing
   function unPin() { if (G && G.eul && G.pinK > 0) G.world.rotation.copy(G.eul); }
+
+  // ---------- live: follow launches as they fly ----------
+  // Picks every launch whose modeled flight is under way right now and rotates between them;
+  // with none in the air it parks on the next one's pad and counts down to liftoff.
+  var liveOn = false, liveTimer = null, liveIdx = 0, liveSwitched = 0, LIVE_ROTATE = 25000;
+  function flightSpan(l) { var p = profileFor(l); stagingFor(p, l); return p.Tend + 60; }
+  function liveTick() {
+    if (!liveOn) return;
+    var t = Date.now(), inAir = LAUNCHES.filter(function (l) { var dt = (t - new Date(l.net)) / 1000; return dt >= 0 && dt <= flightSpan(l); })
+      .sort(function (a, b) { return new Date(a.net) - new Date(b.net); });
+    var pick;
+    if (inAir.length) {
+      if (t - liveSwitched > LIVE_ROTATE || !focusPad || inAir.indexOf(focusPad) < 0) { liveIdx = (liveIdx + 1) % inAir.length; liveSwitched = t; }
+      pick = inAir[liveIdx % inAir.length];
+    } else {
+      pick = LAUNCHES.filter(function (l) { return new Date(l.net) > t; }).sort(function (a, b) { return new Date(a.net) - new Date(b.net); })[0];
+    }
+    $('hudStatus').textContent = inAir.length ? 'Live · ' + inAir.length + ' in flight' : pick ? 'Live · waiting for next launch' : 'Live · no launches listed';
+    if (pick && (pick !== focusPad || !prof)) { showPad(pick, true); if (G) G.lzUser = false; }
+  }
+  function setLive(on) {
+    if (on === liveOn) return;
+    liveOn = on; $('liveBtn').setAttribute('aria-pressed', on);
+    clearInterval(liveTimer); liveTimer = null;
+    if (on) { liveSwitched = 0; liveIdx = -1; liveTick(); liveTimer = setInterval(liveTick, 1000); }
+    else { if (prof) prof.live = false; updateAll(true); }
+  }
+  $('liveBtn').addEventListener('click', function () { setLive(!liveOn); });
+
+  // ---------- side panel toggle ----------
+  function setPanel(hide) {
+    document.querySelector('.shell').classList.toggle('full', hide);
+    $('panelBtn').setAttribute('aria-pressed', hide); $('panelBtn').innerHTML = '<span class="wide">Panel </span>' + (hide ? '⇤' : '⇥');
+    store('evo.panelHidden', hide);
+    requestAnimationFrame(globeResize);
+  }
+  $('panelBtn').addEventListener('click', function () { setPanel(!document.querySelector('.shell').classList.contains('full')); });
+  if (store('evo.panelHidden')) setPanel(true);
 
   // ---------- boot ----------
   function guessLocation() {
