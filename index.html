@@ -468,21 +468,28 @@
         '}',
         'void main(){',
         '  vec3 p = normalize(vP); float la = asin(clamp(p.y, -1.0, 1.0)), lo = atan(p.x, p.z);',
-        '  vec3 ocean = vec3(0.047, 0.039, 0.02);',
-        '  float px = max(length(dFdx(vP)), length(dFdy(vP)));',
+        '  vec3 ocean = vec3(0.035, 0.03, 0.017);',
+        '  float lx = length(dFdx(vP)), ly = length(dFdy(vP)), px = sqrt(lx * ly), an = max(lx, ly) / max(min(lx, ly), 1e-9);',
+        '  float keep = 1.0 - smoothstep(2.0, 4.0, an);', // dots smear into streaks at grazing angles, so let them go there
         '  float L = log2(max(px * 9.0, 1.2e-4)), fl = floor(L), t = fract(L);',
         '  float d = 0.0, coast = 0.0, bord = 0.0, fill = 0.0;',
         '  if (ready > 0.5) {',
         '    vec3 m = texture2D(map, uvOf(la, lo)).rgb;',
-        '    d = mix(layer(la, lo, exp2(fl), px), layer(la, lo, exp2(fl + 1.0), px), t);',
+        '    d = keep * mix(layer(la, lo, exp2(fl), px), layer(la, lo, exp2(fl + 1.0), px), t);',
         '    coast = clamp(1.0 - abs(m.r - 0.5) / (fwidth(m.r) * 1.4 + 0.002), 0.0, 1.0);',
         '    bord = smoothstep(0.15, 0.8, m.g); fill = smoothstep(0.3, 0.7, m.r);',
         '  }',
-        '  float rim = pow(1.0 - max(dot(vN, vV), 0.0), 5.0);',
-        '  vec3 col = ocean + c * k * (d * 0.95 + fill * 0.07 + coast * 0.75 + bord * 0.3) + c * rim * 0.35 * k;',
+        '  float ndv = 1.0 - max(dot(vN, vV), 0.0), limb = pow(ndv, 14.0), haze = pow(ndv, 3.0);',
+        '  vec3 col = ocean + c * k * (d * 0.95 + fill * (0.06 + 0.06 * (1.0 - keep)) + coast * 0.7 + bord * 0.28) + c * k * (haze * 0.05 + limb * 0.55);',
         '  gl_FragColor = vec4(col, 1.0);',
         '}'].join('\n') });
-    var surf = new THREE.Mesh(new THREE.SphereGeometry(.9985, 384, 192), surfM); surf.visible = false; world.add(surf);
+    var surf = new THREE.Mesh(new THREE.SphereGeometry(1, 384, 192), surfM); surf.visible = false; world.add(surf);
+    // Sky seen from low altitude: a thin glow that sits on the horizon line, brightest where you look across the atmosphere.
+    var skyM = new THREE.ShaderMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { c: { value: amber }, k: { value: 0 }, cam: { value: new THREE.Vector3() }, ctr: { value: new THREE.Vector3() }, r: { value: 1.01 } },
+      vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+      fragmentShader: 'uniform vec3 c; uniform float k; uniform vec3 cam; uniform vec3 ctr; uniform float r; varying vec3 vW; void main(){ vec3 up = normalize(cam - ctr); float e = dot(normalize(vW - cam), up) + sqrt(max(1.0 - 1.0 / (r * r), 0.0)); float g = exp(-max(e, 0.0) * 12.0) * smoothstep(-0.03, 0.0, e); gl_FragColor = vec4(c * g * 0.32 * k, 1.0); }' });
+    var sky = new THREE.Mesh(new THREE.SphereGeometry(1.016, 96, 48), skyM); sky.visible = false; world.add(sky);
     var n = LAND.length / 6, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     for (var i = 0; i < n; i++) {
       var lat = parseInt(LAND.substr(i * 6, 3), 36) / 10 - 90, lon = parseInt(LAND.substr(i * 6 + 3, 3), 36) / 10 - 180, v = ll(lat, lon, 1.002);
@@ -566,7 +573,7 @@
 
     G = { r: r, s: s, cam: cam, world: world, core: core, hud: hud, arc: arc, arc2: arc2, marker: marker, ripples: ripples, flash: flash, beam: beam, glow: glow, cross: cross,
       horizon: horizon, horizonLine: horizonLine, hlPts: hlPts, bulkPts: bulkPts, selPt: selPt, selRing: selRing, orbit: orbit, padM: padM, tex: tex,
-      surf: surf, surfM: surfM, landM: landM, detail: detail, detailM: detailM, backM: backM, gridM: gridM, rimM: rimM, atmoM: atmoM, tickM: tickM,
+      surf: surf, surfM: surfM, sky: sky, skyM: skyM, landM: landM, detail: detail, detailM: detailM, backM: backM, gridM: gridM, rimM: rimM, atmoM: atmoM, tickM: tickM,
       t0: performance.now(), drag: false, done: false, ty: 0, tx: 0, sy: 0, sx: 0, zoom: 6.4, fly: null, w: 1, h: 1 };
 
     var gx = 0, gy = 0, sx0 = 0, sy0 = 0, moved = 0, ptrs = {}, pinch = null;
@@ -611,7 +618,7 @@
   }
   // Zoom by changing the camera's height above the surface. Zooming in also turns the globe so the
   // spot under the cursor or fingers drifts toward the centre; while tracking an object it stays centred on it.
-  var ZMIN = 1.3, ZMAX = 9, PMIN = .03, PMAX = 8, G_LOCK = 'earth';
+  var ZMIN = 1.3, ZMAX = 9, PMIN = .01, PMAX = 8, G_LOCK = 'earth';
   function zoomAt(cx, cy, f) {
     if (!G) return;
     G.userZoom = true;
@@ -748,6 +755,8 @@
     var sReady = G.surfM.uniforms.ready.value > .5;
     if (zf > .01) loadSurface();
     G.surf.visible = zf > .01; G.surfM.uniforms.k.value = zf;
+    var skyK = clamp((1.06 - CZ) / .04); G.sky.visible = skyK > 0.01; G.skyM.uniforms.k.value = skyK;
+    if (G.sky.visible) { G.skyM.uniforms.cam.value.copy(G.cam.position); G.skyM.uniforms.ctr.value.copy(G.world.position); G.skyM.uniforms.r.value = Math.max(1.0001, CZ / G.world.scale.x); }
     G.detailM.opacity = sReady ? 0 : zf * Math.max(G.landDim, .75); G.detail.visible = !sReady && zf > .01;
     var far = clamp((CZ - 1.12) / .5); // haloes that only make sense from space fade out near the ground
     G.bulkPts.userData.trails.material.opacity = tf;
@@ -1161,7 +1170,7 @@
     var w = Math.max(0, Math.min(1, (s - p.ts) / (p.Tb - p.ts))), wd = 1 - (1 - w) * (1 - w);
     return { d: p.dS + (p.dL - p.dS) * wd, h: Math.max(0, p.hS * (1 - w) + p.hS * .9 * 4 * w * (1 - w) * (1 - w)) };
   }
-  function vec(p, l, o, lift) { var q = gcPoint(l.lat, l.lon, p.az, o.d); return ll(q.lat, q.lon, disp(o.h) + (lift || .002)); }
+  function vec(p, l, o, lift) { var q = gcPoint(l.lat, l.lon, p.az, o.d); return ll(q.lat, q.lon, disp(o.h) + (lift || .0003)); } // hug the ground: up close a few km of lift reads as floating
 
   function openProfile(l) {
     var p = profileFor(l); stagingFor(p, l);
@@ -1241,13 +1250,13 @@
     prof.s = s; prof.cur = up;
     // rocket until insertion, then it hands over to the satellite marker
     var k = Math.max(0, Math.min(1, (s - p.T) / 70));
-    setPos(G.vehicle, vec(p, l, up, .003)); G.vehicle.material.opacity = 1 - k;
-    setPos(G.satDot, vec(p, l, up, .003)); G.satDot.material.opacity = k; G.satDot.visible = k > 0;
+    setPos(G.vehicle, vec(p, l, up, .0003)); G.vehicle.material.opacity = 1 - k;
+    setPos(G.satDot, vec(p, l, up, .0003)); G.satDot.material.opacity = k; G.satDot.visible = k > 0;
     G.upLine.material.opacity = .95 - .55 * k;
     // booster after separation, lingering at its landing spot
     var bOn = s >= p.ts;
     G.bstDot.visible = G.bstLine.visible = bOn;
-    if (bOn) { setPos(G.bstDot, vec(p, l, boosterAt(p, s), .003)); G.bstDot.material.opacity = s > p.Tb ? Math.max(.25, 1 - (s - p.Tb) / 200) : 1; }
+    if (bOn) { setPos(G.bstDot, vec(p, l, boosterAt(p, s), .0005)); G.bstDot.material.opacity = s > p.Tb ? Math.max(.25, 1 - (s - p.Tb) / 200) : 1; }
     var x = px(p, s), y = py(p, up.h);
     var b = boosterAt(p, s), bx = px(p, Math.min(s, p.Tb)), by = py(p, b.h);
     (prof.marks || []).forEach(function (m) {
@@ -1422,8 +1431,11 @@
   // The pivot is your pin (pin lock) or, while a launch card is open, a point along its ascent seen side-on.
   function pivotMode() { return !obs ? null : prof && focusPad ? 'launch' : G_LOCK === 'pin' ? 'pin' : null; }
   function launchPivot() { // a ground point between the pad and the vehicle, so both stay in frame as it flies
-    var p = prof.p, c = prof.cur || { d: 0, h: 0 }, q = gcPoint(prof.l.lat, prof.l.lon, p.az, c.d * .5);
-    if (!G.lzUser) { // widen and raise the view as the flight gets longer, until you take over the camera
+    var p = prof.p, c = prof.cur || { d: 0, h: 0 }, q = gcPoint(prof.l.lat, prof.l.lon, p.az, c.d * (prof.live ? .82 : .5));
+    if (!G.lzUser && prof.live) { // live: stay close on the vehicle itself, like a tracking camera
+      G.zoom = Math.max(.012, Math.min(1.2, .012 + (c.d * .45 + c.h * 2.2) / 6371 * 2));
+      PIN_PITCH += ((5 + 10 * Math.min(1, c.h / 200)) * D - PIN_PITCH) * .08;
+    } else if (!G.lzUser) { // widen and raise the view as the flight gets longer, until you take over the camera
       var asp = Math.min(1, (G.w || 1) / (G.h || 1)); G.zoom = Math.max(.05, Math.min(3, .05 + (c.d * 1.15 / asp + c.h * 2.6) / 6371 * 2.2));
       PIN_PITCH += ((6 + 8 * Math.min(1, c.d / p.Dr)) * D - PIN_PITCH) * .08;
     }
@@ -1434,7 +1446,7 @@
     if (!a) { G.earthZoom = G.zoom; G.cam.position.z = Math.max(PMIN, G.cam.position.z - 1); }
     if (!b) { G.zoom = G.earthZoom || 6; G.cam.position.z = G.camR || G.cam.position.z + 1; if (a === 'pin') flyTo(obs.lat, obs.lon); return; }
     if (b === 'pin') { var st = PIN_STATE || { yaw: 0, pitch: 35 * D, zoom: Math.max(PMIN, (G.earthZoom || 6) - 1) }; PIN_YAW = st.yaw; PIN_PITCH = st.pitch; G.zoom = st.zoom; }
-    if (b === 'launch') { PIN_YAW = (prof.p.az - 90) * D; PIN_PITCH = 7 * D; G.zoom = .05; }
+    if (b === 'launch') { PIN_YAW = (prof.p.az - 90) * D; PIN_PITCH = 7 * D; G.zoom = prof.live ? .012 : .05; }
     var tgt = b === 'pin' ? G.marker.position : launchPivot();
     if (!a) G.pivN.copy(tgt);
   }
