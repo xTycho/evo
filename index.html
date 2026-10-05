@@ -599,7 +599,7 @@
       if (moved < 4) return;
       G.done = true; G.fly = null; follow = false;
       var sp = .006 * Math.min(1, ((G.camR || G.cam.position.z) - 1) / 5.4); // turn slower when close to the surface
-      if (G.pmode === 'launch') G.lzUser = true;
+      if (G.pmode === 'launch') { G.lzUser = true; G.lzUserT = performance.now(); }
       if (G.pmode) { PIN_YAW += (e.clientX - gx) * .006; PIN_PITCH = Math.max(3 * D, Math.min(90 * D, PIN_PITCH + (e.clientY - gy) * .005)); gx = e.clientX; gy = e.clientY; return; }
       unPin();
       G.world.rotation.y += (e.clientX - gx) * sp;
@@ -622,7 +622,7 @@
   function zoomAt(cx, cy, f) {
     if (!G) return;
     G.userZoom = true;
-    if (G.pmode === 'launch') G.lzUser = true;
+    if (G.pmode === 'launch') { G.lzUser = true; G.lzUserT = performance.now(); }
     if (G.pmode) { G.zoom = Math.max(PMIN, Math.min(PMAX, G.zoom * f)); return; } // straight in toward the pin
     unPin();
     var oldAlt = G.zoom - 1, alt = Math.max(ZMIN - 1, Math.min(ZMAX - 1, oldAlt * f));
@@ -734,6 +734,8 @@
       var f = ease(clamp((t - G.fly.t0) / (reduce ? 1 : 1100)));
       G.world.rotation.x = G.fly.x0 + (G.fly.x1 - G.fly.x0) * f; G.world.rotation.y = G.fly.y0 + (G.fly.y1 - G.fly.y0) * f;
       if (f >= 1) G.fly = null;
+    } else if (liveOn && !prof && !G.drag && !G.pmode) {
+      G.world.rotation.y += .0011; // live, between launches: let the planet turn
     } else if (follow && sel && sel.ok && !G.drag && !G.pmode) {
       var la = Math.atan2(sel.p.z, Math.sqrt(sel.p.x * sel.p.x + sel.p.y * sel.p.y)), lo = Math.atan2(sel.p.y, sel.p.x);
       var tyy = -lo, cy = G.world.rotation.y, dy = ((tyy - cy) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -804,7 +806,7 @@
     if (!sel && focusPad) pinTarget = G.padM.position;
     G.padM.visible = !!focusPad && !sel;
     keepSize(G.marker); if (G.padM.visible) keepSize(G.padM);
-    profileFrame(t);
+    profileFrame(t); previewFrame(t);
     if (focusPad && prof && prof.s != null && G.pmode === 'launch' && G.upLine) { // in the launch view the label rides with the vehicle
       pinTarget = null; // the corner card carries the vehicle's phase, time and height
       var ps = prof.p, sp = prof.s;
@@ -1187,7 +1189,7 @@
     $('lnDr').textContent = km(p.Dr);
     var d = new Date(l.net); $('lnWhen').textContent = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' + hm(d);
     drawProfileChart('profSvg'); drawProfileChart('profMini', true);
-    $('lnMini').hidden = false; $('lmName').textContent = l.mission;
+    $('lnMini').hidden = false; $('profMini').style.display = ''; $('lmName').textContent = l.mission;
     if (!G) return;
     ensureProfileObjs();
     var i, v, a = G.upLine.geometry.attributes.position.array;
@@ -1432,14 +1434,32 @@
   function pivotMode() { return !obs ? null : prof && focusPad ? 'launch' : G_LOCK === 'pin' ? 'pin' : null; }
   function launchPivot() { // a ground point between the pad and the vehicle, so both stay in frame as it flies
     var p = prof.p, c = prof.cur || { d: 0, h: 0 }, q = gcPoint(prof.l.lat, prof.l.lon, p.az, c.d * (prof.live ? .82 : .5));
-    if (!G.lzUser && prof.live) { // live: stay close on the vehicle itself, like a tracking camera
-      G.zoom = Math.max(.012, Math.min(1.2, .012 + (c.d * .45 + c.h * 2.2) / 6371 * 2));
-      PIN_PITCH += ((5 + 10 * Math.min(1, c.h / 200)) * D - PIN_PITCH) * .08;
+    if (prof.live && G.lzUser && performance.now() - (G.lzUserT || 0) > 9000) G.lzUser = false; // hand the camera back after a while
+    if (!G.lzUser && prof.live) { // live: a directed sequence of shots that follows the flight in real time
+      var sh = shotFor(p, prof.sRaw == null ? -1 : prof.sRaw, c);
+      q = gcPoint(prof.l.lat, prof.l.lon, p.az, sh.d);
+      G.zoom += (sh.zoom - G.zoom) * .035;
+      PIN_PITCH += (sh.pitch * D - PIN_PITCH) * .03;
+      PIN_YAW += wrapPi(sh.yaw * D - PIN_YAW) * .02;
+      prof.shot = sh.name;
+      if (!isFinite(PIN_YAW) || !isFinite(PIN_PITCH) || !isFinite(G.zoom)) { PIN_YAW = 0; PIN_PITCH = 7 * D; G.zoom = .05; }
     } else if (!G.lzUser) { // widen and raise the view as the flight gets longer, until you take over the camera
       var asp = Math.min(1, (G.w || 1) / (G.h || 1)); G.zoom = Math.max(.05, Math.min(3, .05 + (c.d * 1.15 / asp + c.h * 2.6) / 6371 * 2.2));
       PIN_PITCH += ((6 + 8 * Math.min(1, c.d / p.Dr)) * D - PIN_PITCH) * .08;
     }
     return ll(q.lat, q.lon, 1);
+  }
+  // Live camera work. s is seconds from liftoff (negative during the countdown); every shot is framed from the
+  // modeled positions, and the per-frame easing above turns the cuts into slow camera moves.
+  function shotFor(p, s, c) {
+    var side = p.az - 90, asp = Math.min(1, (G.w || 1) / (G.h || 1)), R = 6371;
+    if (s < 0) return { name: 'Pad', d: 0, zoom: .006, pitch: 3.5, yaw: side + 30 + (s * .08) % 360 };
+    if (s < 40) return { name: 'Liftoff', d: c.d * .6, zoom: .006 + c.h / R * 3.4, pitch: 3.5 + Math.min(c.h, 30) / 30 * 7, yaw: side + 30 - s * .5 };
+    if (s < p.ts - 15) return { name: 'Ascent', d: c.d * .8, zoom: .01 + (c.h * 2.3 + c.d * .5) / R * 2 / asp, pitch: 9, yaw: p.az - 50 };
+    if (s < p.ts + 110) { var b = boosterAt(p, Math.max(s, p.ts)); return { name: 'Stage separation', d: (b.d + c.d) / 2, zoom: .016 + (Math.abs(c.d - b.d) * 1.25 / asp + c.h * 2.4) / R * 2.1, pitch: 8, yaw: side }; }
+    if (s < p.T) return { name: 'Upper stage', d: c.d * .78, zoom: .02 + (c.d * .55 / asp + c.h * 2.3) / R * 2.1, pitch: 10, yaw: p.az - 65 };
+    var k = Math.min(1, (s - p.T) / 120);
+    return { name: 'Orbit', d: c.d * .6, zoom: .05 + (c.d * 1.05 / asp + c.h * 2.6) / R * 2.2, pitch: 10 + 14 * k, yaw: side };
   }
   function switchPivot(a, b) {
     if (a === 'pin') PIN_STATE = { yaw: PIN_YAW, pitch: PIN_PITCH, zoom: G.zoom };
@@ -1485,26 +1505,66 @@
   // with none in the air it parks on the next one's pad and counts down to liftoff.
   var liveOn = false, liveTimer = null, liveIdx = 0, liveSwitched = 0, LIVE_ROTATE = 25000;
   function flightSpan(l) { var p = profileFor(l); stagingFor(p, l); return p.Tend + 60; }
+  var LEAD_IN = 120; // seconds before liftoff that the camera flies to the pad
   function liveTick() {
     if (!liveOn) return;
-    var t = Date.now(), inAir = LAUNCHES.filter(function (l) { var dt = (t - new Date(l.net)) / 1000; return dt >= 0 && dt <= flightSpan(l); })
+    var t = Date.now(), inAir = LAUNCHES.filter(function (l) { var dt = (t - new Date(l.net)) / 1000; return dt >= -LEAD_IN && dt <= flightSpan(l); })
       .sort(function (a, b) { return new Date(a.net) - new Date(b.net); });
-    var pick;
     if (inAir.length) {
       if (t - liveSwitched > LIVE_ROTATE || !focusPad || inAir.indexOf(focusPad) < 0) { liveIdx = (liveIdx + 1) % inAir.length; liveSwitched = t; }
-      pick = inAir[liveIdx % inAir.length];
-    } else {
-      pick = LAUNCHES.filter(function (l) { return new Date(l.net) > t; }).sort(function (a, b) { return new Date(a.net) - new Date(b.net); })[0];
+      var pick = inAir[liveIdx % inAir.length], flying = inAir.filter(function (l) { return new Date(l.net) <= t; }).length;
+      $('hudStatus').textContent = flying ? 'Live · ' + flying + ' in flight' : 'Live · liftoff soon';
+      if (pick !== focusPad || !prof) { showPad(pick, true); if (G) G.lzUser = false; }
+      return;
     }
-    $('hudStatus').textContent = inAir.length ? 'Live · ' + inAir.length + ' in flight' : pick ? 'Live · waiting for next launch' : 'Live · no launches listed';
-    if (pick && (pick !== focusPad || !prof)) { showPad(pick, true); if (G) G.lzUser = false; }
+    // nothing on the pad yet: the globe turns slowly with every upcoming launch drawn on it
+    if (prof) { focusPad = null; closeProfile(true); updateAll(true); }
+    var next = upcoming(t)[0];
+    $('hudStatus').textContent = next ? 'Live · next liftoff ' + tminus(new Date(next.net) - t).replace('T- ', 'in ') : 'Live · no launches listed';
+    $('lnMini').hidden = !next; $('profMini').style.display = 'none';
+    if (next) {
+      $('lmKind').textContent = 'Live · next launch';
+      $('lmName').textContent = next.mission;
+      $('lmData').textContent = tminus(new Date(next.net) - t) + ' · ' + next.rocket + ' · ' + next.location.split(',')[0];
+    }
+    buildPreviews(t);
+  }
+  function upcoming(t) { return LAUNCHES.filter(function (l) { return new Date(l.net) > t; }).sort(function (a, b) { return new Date(a.net) - new Date(b.net); }); }
+  // Looping previews of the next launches on the idle globe: each pad gets its ascent arc and a dot that flies it.
+  var prevKey = '';
+  function buildPreviews(t) {
+    if (!G) return;
+    var list = upcoming(t).filter(function (l) { return new Date(l.net) - t < 14 * 864e5; }).slice(0, 8), key = list.map(function (l) { return l.mission + l.net; }).join('|');
+    if (key === prevKey && G.prev) return; prevKey = key;
+    if (G.prev) { G.prev.group.parent.remove(G.prev.group); G.prev.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); }); }
+    var group = new THREE.Group(), items = [], lineM = new THREE.LineBasicMaterial({ color: 0xfeb302, transparent: true, opacity: .55, blending: THREE.AdditiveBlending, depthWrite: false });
+    list.forEach(function (l, n) {
+      var p = profileFor(l); stagingFor(p, l); var span = p.T + 300, pts = [];
+      for (var i = 0; i <= 90; i++) { var v = vec(p, l, upperAt(p, i / 90 * span), .002); pts.push(v.x, v.y, v.z); }
+      var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      group.add(new THREE.Line(g, lineM));
+      items.push({ l: l, p: p, span: span, off: n * 1.9 });
+    });
+    function pts(n, size, color) { var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(Math.max(1, n) * 3), 3)); g.setDrawRange(0, n);
+      var o = new THREE.Points(g, new THREE.PointsMaterial({ size: size, sizeAttenuation: false, map: coreTex(), color: color, transparent: true, depthWrite: false })); o.frustumCulled = false; group.add(o); return o; }
+    var pads = pts(items.length, 9, 0xfeb302), dots = pts(items.length, 8, 0xffffff);
+    items.forEach(function (it, n) { var v = ll(it.l.lat, it.l.lon, 1.003); pads.geometry.attributes.position.setXYZ(n, v.x, v.y, v.z); });
+    pads.geometry.attributes.position.needsUpdate = true;
+    G.world.add(group); G.prev = { group: group, items: items, dots: dots };
+  }
+  function previewFrame(t) {
+    if (!G || !G.prev) return;
+    var on = liveOn && !prof; G.prev.group.visible = on; if (!on) return;
+    var a = G.prev.dots.geometry.attributes.position;
+    G.prev.items.forEach(function (it, n) { var u = ((t / 1000 + it.off) % 7) / 6, v = vec(it.p, it.l, upperAt(it.p, Math.min(1, u) * it.span), .003); a.setXYZ(n, v.x, v.y, v.z); });
+    a.needsUpdate = true;
   }
   function setLive(on) {
     if (on === liveOn) return;
     liveOn = on; $('liveBtn').setAttribute('aria-pressed', on);
     clearInterval(liveTimer); liveTimer = null;
     if (on) { liveSwitched = 0; liveIdx = -1; liveTick(); liveTimer = setInterval(liveTick, 1000); }
-    else { if (prof) prof.live = false; updateAll(true); }
+    else { if (prof) prof.live = false; else $('lnMini').hidden = true; $('profMini').style.display = ''; updateAll(true); }
   }
   $('liveBtn').addEventListener('click', function () { setLive(!liveOn); });
 
