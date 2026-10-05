@@ -792,23 +792,35 @@
 
   // ---------- layers (live catalogue) ----------
   function setLayer(name) {
-    layer = name;
+    layer = name; store('overhead.layer', name);
     document.querySelectorAll('.seg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.layer === name ? 'true' : 'false'); });
     if (sel && BULK.indexOf(sel) >= 0) select(null);
     if (name === 'hl') { BULK = []; $('layerMsg').textContent = HL.length + ' hand-picked objects: crewed stations, bright satellites, weather and ham radio birds.'; updateAll(true); return; }
     if (bulkCache[name]) { useBulk(name); return; }
     $('layerMsg').textContent = 'Loading the ' + (name === 'starlink' ? 'Starlink' : 'full active') + ' catalogue from CelesTrak…';
     var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 12000);
-    fetch(LIVE[name], { signal: ctl.signal }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); }).then(function (txt) {
-      clearTimeout(to);
+    var key = 'evo.cat.' + name, cached = null;
+    try { cached = JSON.parse(localStorage.getItem(key)); } catch (e) {}
+    var take = function (txt) {
       var known = {}; HL.forEach(function (s) { known[s.id] = 1; });
-      bulkCache[name] = parseTLE(txt, name).filter(function (s) { return !known[s.id]; });
+      var list = parseTLE(txt, name).filter(function (s) { return !known[s.id]; });
+      if (!list.length) throw new Error('empty');
+      bulkCache[name] = list;
       if (layer === name) useBulk(name);
-    }).catch(function () {
+    };
+    // CelesTrak updates every ~2 h and blocks clients that re-download too often, so reuse a recent copy
+    if (cached && cached.t && Date.now() - cached.t < 2 * 3600000) { try { clearTimeout(to); take(cached.txt); return; } catch (e) {} }
+    fetch(LIVE[name], { signal: ctl.signal }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(function (txt) {
+      clearTimeout(to);
+      take(txt);
+      try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), txt: txt })); } catch (e) {}
+    }).catch(function (err) {
       clearTimeout(to);
       if (layer !== name) return;
+      if (cached && cached.txt) { try { take(cached.txt); $('layerMsg').textContent += ' Using a saved copy from ' + hm(new Date(cached.t)) + ' because CelesTrak did not answer.'; return; } catch (e) {} }
       BULK = [];
-      $('layerMsg').textContent = (/claude/i.test(location.hostname) ? 'Pages inside claude.ai cannot load outside data, so only the highlights are shown here. Use the hosted link to load the full catalogue.' : 'Could not reach CelesTrak, so only the highlights are shown. Try again in a minute, or check your connection.');
+      var why = err && err.name === 'AbortError' ? 'it took too long to answer' : err && /HTTP/.test(err.message) ? 'it answered ' + err.message : err && err.message === 'empty' ? 'it sent back no satellites' : 'the browser blocked the request';
+      $('layerMsg').textContent = /claude/i.test(location.hostname) ? 'Pages inside claude.ai cannot load outside data, so only the highlights are shown here. Use the hosted link to load the full catalogue.' : 'Could not load the catalogue from CelesTrak because ' + why + '. Only the highlights are shown. Tap the button again to retry.';
       updateAll(true);
     });
   }
@@ -900,7 +912,9 @@
   if (start.guessed) $('locMsg').textContent = 'Starting at ' + start.name + ', guessed from your time zone. Set your real spot below.';
   now = new Date(); gmst = SAT.gstime(now);
   setObserver(start, false);
-  setLayer('hl');
+  // On a hosted copy, open straight into the full live catalogue; inside claude.ai there is nothing to fetch
+  var hosted = !/claude/i.test(location.hostname) && location.protocol !== 'file:';
+  setLayer(store('overhead.layer') || (hosted ? 'active' : 'hl'));
   try { initGlobe(); intro(); } catch (e) { G = null; $('hudStatus').textContent = '3D view unavailable'; }
   tryLiveLaunches();
   tryLiveHighlights();
