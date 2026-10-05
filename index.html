@@ -540,6 +540,8 @@
       if (moved < 4) return;
       G.done = true; G.fly = null; follow = false;
       var sp = G_LOCK === 'pin' ? .005 : .006 * Math.min(1, ((G.camR || G.cam.position.z) - 1) / 5.4); // turn slower when close to the surface
+      if (G_LOCK === 'pin') { PIN_YAW += (e.clientX - gx) * .006; PIN_PITCH = Math.max(3 * D, Math.min(90 * D, PIN_PITCH + (e.clientY - gy) * .005)); gx = e.clientX; gy = e.clientY; return; }
+      unPin();
       G.world.rotation.y += (e.clientX - gx) * sp;
       G.world.rotation.x = Math.max(-1.5, Math.min(1.5, G.world.rotation.x + (e.clientY - gy) * sp));
       gx = e.clientX; gy = e.clientY;
@@ -561,6 +563,7 @@
     if (!G) return;
     G.userZoom = true;
     if (G_LOCK === 'pin') { G.zoom = Math.max(PMIN, Math.min(PMAX, G.zoom * f)); return; } // straight in toward the pin
+    unPin();
     var oldAlt = G.zoom - 1, alt = Math.max(ZMIN - 1, Math.min(ZMAX - 1, oldAlt * f));
     G.zoom = 1 + alt;
     if (alt >= oldAlt || (follow && sel)) return;
@@ -659,6 +662,7 @@
 
   var bulkCursor = 0, lastOrbit = 0, upBulk = [];
   function globeFrame(t) {
+    unPin();
     var T = reduce ? 10 : (t - G.t0) / 1000, ROT = 3.0, HIT = 3.25;
     var k = ease(clamp(T / ROT));
     if (!G.done && !G.drag) {
@@ -1273,34 +1277,41 @@
     G.zoom = m === 'pin' ? Math.max(PMIN, G.zoom - 1) : Math.max(ZMIN, G.zoom + 1);
     G.cam.position.z = m === 'pin' ? Math.max(PMIN, G.cam.position.z - 1) : G.cam.position.z + 1;
     follow = false;
-    if (m === 'pin') flyTo(obs.lat, obs.lon);
+    if (m === 'pin') { PIN_YAW = 0; PIN_PITCH = 35 * D; } else flyTo(obs.lat, obs.lon);
   }
   function lockLabel() { $('lockBtn').innerHTML = '<span class="wide">Orbit: </span>' + (G_LOCK === 'pin' ? 'my pin' : 'Earth'); }
   lockLabel();
   $('lockBtn').setAttribute('aria-pressed', G_LOCK === 'pin');
   $('lockBtn').addEventListener('click', function () { setLock(G_LOCK === 'pin' ? 'earth' : 'pin'); });
   function wrapPi(a) { return ((a % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI; }
-  // In pin mode the world is shifted so your pin sits at the origin the camera looks at.
-  // Dragging tilts the view around the pin, capped so the pin never slips behind the horizon.
+  // Pin mode works like a map tilted toward the horizon: the world is turned so the ground under your pin
+  // is level (local up = screen up) and the pin sits at the point the camera looks at.
+  // Dragging sideways walks around the pin, dragging up and down lowers or raises your view toward the horizon.
+  var PIN_YAW = 0, PIN_PITCH = 35 * D, qE = new THREE.Quaternion(), qP = new THREE.Quaternion(), qT = new THREE.Quaternion(), mB = new THREE.Matrix4();
   function pinFrame() {
     var tgt = G_LOCK === 'pin' ? 1 : 0;
-    G.pinK += (tgt - G.pinK) * .12; if (Math.abs(tgt - G.pinK) < .001) G.pinK = tgt;
-    if (G_LOCK === 'pin' && obs) {
-      var cy = -obs.lon * D, cx = obs.lat * D, r = G.world.rotation;
-      r.y = cy + Math.max(-1.2, Math.min(1.2, wrapPi(r.y - cy)));
-      r.x = Math.max(-1.5, Math.min(1.5, cx + Math.max(-1.1, Math.min(1.1, r.x - cx))));
-    }
+    G.pinK += (tgt - G.pinK) * .1; if (Math.abs(tgt - G.pinK) < .001) G.pinK = tgt;
+    G.eul = G.world.rotation.clone(); // the globe-mode orientation the rest of the code steers
     if (G.pinK > 0 && obs) {
-      G.world.updateMatrix();
-      W.copy(G.marker.position).applyEuler(G.world.rotation).multiplyScalar(G.world.scale.x * G.pinK);
+      var n = G.marker.position, up = new THREE.Vector3().copy(n).normalize();
+      var north = new THREE.Vector3(0, 1, 0).addScaledVector(up, -up.y); if (north.lengthSq() < 1e-6) north.set(0, 0, -1); north.normalize();
+      var east = new THREE.Vector3().crossVectors(north, up);
+      mB.makeBasis(east, up, north.negate()).transpose(); // local east/up/south onto screen x/y/z
+      qP.setFromRotationMatrix(mB);
+      qT.setFromEuler(new THREE.Euler(PIN_PITCH, PIN_YAW, 0, 'XYZ')).multiply(qP);
+      qE.setFromEuler(G.eul);
+      G.world.quaternion.copy(qE).slerp(qT, ease(G.pinK));
+      W.copy(n).applyQuaternion(G.world.quaternion).multiplyScalar(G.world.scale.x * ease(G.pinK));
       G.world.position.set(-W.x, -W.y, -W.z);
     } else G.world.position.set(0, 0, 0);
     G.hud.position.copy(G.world.position);
     G.hud.visible = G.pinK < .5;
     G.camR = G.cam.position.distanceTo(G.world.position);
-    var nr = Math.max(.004, Math.min(.1, (G.camR - 1) * .25));
+    var nr = Math.max(.002, Math.min(.1, (G.camR - 1) * .2));
     if (Math.abs(nr - G.cam.near) > 1e-4) { G.cam.near = nr; G.cam.updateProjectionMatrix(); }
   }
+  // put the globe-mode orientation back before anything steers it, since pin mode overwrote it for drawing
+  function unPin() { if (G && G.eul && G.pinK > 0) G.world.rotation.copy(G.eul); }
 
   // ---------- boot ----------
   function guessLocation() {
@@ -1338,7 +1349,7 @@
   }
   $('upBtn').addEventListener('click', function () { setOnlyUp(!onlyUp); });
   setOnlyUp(onlyUp);
-  $('recenter').addEventListener('click', function () { if (G) { select(null); focusPad = null; intro(); } });
+  $('recenter').addEventListener('click', function () { if (G) { PIN_YAW = 0; PIN_PITCH = 35 * D; select(null); focusPad = null; intro(); } });
   $('selClear').addEventListener('click', function () { select(null); });
   $('launchHud').addEventListener('click', function () { var nl = LAUNCHES.find(function (l) { return new Date(l.net) > now; }); if (nl) showPad(nl); });
   document.querySelectorAll('.seg button').forEach(function (b) { b.addEventListener('click', function () { setLayer(b.dataset.layer); }); });
