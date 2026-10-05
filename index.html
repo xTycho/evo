@@ -1045,14 +1045,13 @@
   }
 
   // ---------- layers (live catalogue) ----------
-  function setLayer(name) {
+  function setLayer(name, retried) {
     layer = name; store('overhead.layer', name);
     document.querySelectorAll('.seg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.layer === name ? 'true' : 'false'); });
     if (sel && BULK.indexOf(sel) >= 0) select(null);
     if (name === 'hl') { BULK = []; $('layerMsg').textContent = HL.length + ' hand-picked objects: crewed stations, bright satellites, weather and ham radio birds.'; updateAll(true); return; }
     if (bulkCache[name]) { useBulk(name); return; }
     $('layerMsg').textContent = 'Loading the ' + (name === 'starlink' ? 'Starlink' : 'full active') + ' catalogue from CelesTrak…';
-    var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 12000);
     var key = 'evo.cat.' + name, cached = null;
     try { cached = JSON.parse(localStorage.getItem(key)); } catch (e) {}
     var take = function (txt) {
@@ -1063,18 +1062,17 @@
       if (layer === name) useBulk(name);
     };
     // CelesTrak updates every ~2 h and blocks clients that re-download too often, so reuse a recent copy
-    if (cached && cached.t && Date.now() - cached.t < 2 * 3600000) { try { clearTimeout(to); take(cached.txt); return; } catch (e) {} }
-    fetchFirst([MIRROR + 'active.txt', LIVE[name]], ctl.signal).then(function (txt) {
-      clearTimeout(to);
+    if (cached && cached.t && Date.now() - cached.t < 2 * 3600000) { try { take(cached.txt); return; } catch (e) {} }
+    fetchFirst([MIRROR + 'active.txt', LIVE[name]], 30000).then(function (txt) {
       take(txt);
       try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), txt: txt })); } catch (e) {}
     }).catch(function (err) {
-      clearTimeout(to);
       if (layer !== name) return;
+      if (!retried) { setTimeout(function () { if (layer === name) setLayer(name, true); }, 4000); return; } // one quiet retry before giving up
       if (cached && cached.txt) { try { take(cached.txt); $('layerMsg').textContent += ' Using a saved copy from ' + hm(new Date(cached.t)) + ' because CelesTrak did not answer.'; return; } catch (e) {} }
       BULK = [];
-      var why = err && err.name === 'AbortError' ? 'it took too long to answer' : err && /HTTP/.test(err.message) ? 'it answered ' + err.message : err && err.message === 'empty' ? 'it sent back no satellites' : 'the browser blocked the request';
-      $('layerMsg').textContent = /claude/i.test(location.hostname) ? 'Pages inside claude.ai cannot load outside data, so only the highlights are shown here. Use the hosted link to load the full catalogue.' : 'Could not load the catalogue from CelesTrak because ' + why + '. Only the highlights are shown. Tap the button again to retry.';
+      var why = function (e) { return !e ? 'failed' : e.name === 'AbortError' ? 'timed out' : /HTTP/.test(e.message) ? 'answered ' + e.message : e.message === 'empty' ? 'sent no satellites' : 'was blocked'; }, all = (err && err.all) || [err];
+      $('layerMsg').textContent = /claude/i.test(location.hostname) ? 'Pages inside claude.ai cannot load outside data, so only the highlights are shown here. Use the hosted link to load the full catalogue.' : 'Could not load the satellite catalogue: the Evo mirror ' + why(all[0]) + (all[1] ? ' and CelesTrak ' + why(all[1]) : '') + '. Check your connection, then tap the button again. Only the highlights are shown.';
       updateAll(true);
     });
   }
@@ -1088,8 +1086,7 @@
   // When the page can reach CelesTrak, swap the built-in highlight orbits for today's and add Hubble
   var liveOrbits = false;
   function tryLiveHighlights() {
-    var c1 = new AbortController(); setTimeout(function () { c1.abort(); }, 12000);
-    Promise.all([fetchFirst([MIRROR + 'visual.txt', LIVE.visual], c1.signal), fetchFirst([MIRROR + 'weather.txt', LIVE.weather], c1.signal).catch(function () { return ''; })]).then(function (txt) {
+    Promise.all([fetchFirst([MIRROR + 'visual.txt', LIVE.visual], 15000), fetchFirst([MIRROR + 'weather.txt', LIVE.weather], 15000).catch(function () { return ''; })]).then(function (txt) {
       var fresh = {}; parseTLE(txt[0] + '\n' + txt[1], 'active').forEach(function (s) { fresh[s.id] = s; });
       var n = 0;
       HL.forEach(function (s) { var f = fresh[s.id]; if (f) { s.rec = f.rec; n++; } });
@@ -1098,18 +1095,19 @@
     }).catch(function () {});
   }
   // try each URL in turn; resolves with the first good response text
-  function fetchFirst(urls, signal) {
+  // each source gets its own time limit, so a slow first source cannot use up the fallback's time
+  function fetchFirst(urls, ms) {
     var errs = [];
     return urls.reduce(function (p, u) {
       return p.catch(function () {
-        return fetch(u, { signal: signal, cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-          .catch(function (e) { errs.push(e); throw e; });
+        var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, ms);
+        return fetch(u, { signal: ctl.signal }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then(function (t) { clearTimeout(to); return t; }, function (e) { clearTimeout(to); errs.push(e); throw e; });
       });
-    }, Promise.reject()).catch(function () { throw errs[errs.length - 1] || new Error('failed'); });
+    }, Promise.reject()).catch(function () { var e = errs[0] || new Error('failed'); e.all = errs; throw e; });
   }
   function tryLiveLaunches() {
-    var ctl = new AbortController(); setTimeout(function () { ctl.abort(); }, 10000);
-    fetchFirst([MIRROR + 'launches.json', LIVE.launches], ctl.signal).then(function (s) { return JSON.parse(s); }).then(function (j) {
+    fetchFirst([MIRROR + 'launches.json', LIVE.launches], 15000).then(function (s) { return JSON.parse(s); }).then(function (j) {
       var L = (j.results || []).map(function (x) {
         var nm = (x.name || '').split(' | ');
         return { mission: (x.mission && x.mission.name) || nm[1] || x.name, rocket: nm[0], net: x.net, status: (x.status && x.status.abbrev) || 'TBD',
