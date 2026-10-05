@@ -8,4 +8,4 @@ Open it at https://xtycho.github.io/evo/
 - Launches come from [The Space Devs](https://thespacedevs.com) Launch Library 2.
 - If either source is unreachable, the page falls back to the snapshot built into `index.html`.
 
-Single static file, no build step. Three.js r128 for the globe.
+Single static file, no build step. Three.js r128 for the globe. Close-zoom land detail is a 0.25° dot grid rasterised from Natural Earth 1:50m land (via world-atlas), stored as a bitmask in the page.
